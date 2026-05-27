@@ -7,7 +7,10 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from core.appEnvironment import BACKEND_ROOT
+from src.core.appEnvironment import BACKEND_ROOT
+from src.observability.structuredLogger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -30,7 +33,14 @@ async def inspect_migration_state(engine: AsyncEngine) -> MigrationReport:
     try:
         async with engine.connect() as connection:
             current_revision = await connection.run_sync(get_current_revision)
-    except Exception:
+    except Exception as exc:
+        logger.error(
+            "migration_state_inspect_failed",
+            component="migration_state.inspect_migration_state",
+            exc_type=type(exc).__name__,
+            exc_message=str(exc),
+            exc_info=True,
+        )
         return MigrationReport(
             aligned=False,
             current_revision=None,

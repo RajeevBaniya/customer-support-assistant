@@ -2,9 +2,9 @@ from typing import Any
 
 from fastapi import Request
 
-from database.databaseManager import DatabaseManager
-from database.migrationState import MigrationReport
-from database.pool_metrics import pool_snapshot
+from src.database.databaseManager import DatabaseManager
+from src.database.migrationState import MigrationReport
+from src.database.pool_metrics import pool_snapshot
 
 
 async def db_section(request: Request) -> dict[str, Any]:

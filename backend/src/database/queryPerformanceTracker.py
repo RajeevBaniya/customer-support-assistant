@@ -4,7 +4,7 @@ from typing import Any
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from observability.structuredLogger import get_logger
+from src.observability.structuredLogger import get_logger
 
 logger = get_logger("database.query")
 SLOW_MS = 750.0
