@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import Field
 
-from schemas.commonSchemas import ApiModel
+from src.schemas.commonSchemas import ApiModel
 
 
 class ClerkTokenPayload(ApiModel):

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from schemas.commonSchemas import ApiModel
+from src.schemas.commonSchemas import ApiModel
 
 
 class UserProfileResponse(ApiModel):
