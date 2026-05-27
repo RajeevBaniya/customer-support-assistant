@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
 
-from auth.authService import auth_me_view
-from auth.userAccess import clerk_token_from_request
-from schemas.authSchemas import AuthMeResponse, ClerkTokenPayload
-from shared.responseFormatter import format_success_response
+from src.auth.authService import auth_me_view
+from src.auth.userAccess import clerk_token_from_request
+from src.schemas.authSchemas import AuthMeResponse, ClerkTokenPayload
+from src.shared.responseFormatter import format_success_response
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 

@@ -4,9 +4,18 @@ from typing import Any, cast
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
 
-from database.db_readiness import db_section, is_db_ready
-from observability.structuredLogger import get_logger
-from shared.responseFormatter import format_error_response, format_success_response
+from src.ai.ragHealth import rag_health
+from src.database.db_readiness import db_section, is_db_ready
+from src.observability.celeryHealth import celery_health_bundle
+from src.observability.evaluation_health import evaluation_health_bundle
+from src.observability.redisHealth import redis_health
+from src.observability.structuredLogger import get_logger
+from src.observability.workflow_health import workflow_health_bundle
+from src.parsing.parserRegistry import parsing_health
+from src.retrieval.retrievalHealth import retrieval_health
+from src.shared.responseFormatter import format_error_response, format_success_response
+from src.storage.storageBinding import storage_health
+from src.vectorstore.vectorHealth import vector_health
 
 health_router = APIRouter(tags=["health"])
 logger = get_logger(__name__)
@@ -99,6 +108,19 @@ async def health_probe(request: Request) -> JSONResponse:
     health_status = "healthy" if healthy else "unhealthy"
 
     issuer_ready = bool(settings.clerk_jwt_issuer and str(settings.clerk_jwt_issuer).strip())
+    storage_bundle = await storage_health(settings)
+    redis_bundle = await redis_health(settings)
+    parsing_bundle = parsing_health()
+    vector_bundle = await vector_health(settings)
+    retrieval_bundle = await retrieval_health(settings)
+    rag_bundle = await rag_health(settings)
+    workflow_bundle = workflow_health_bundle()
+    evaluation_bundle = evaluation_health_bundle()
+    streaming_ready = bool(
+        redis_bundle.get("redis_configured") and redis_bundle.get("redis_reachable")
+    )
+    redis_ok = bool(redis_bundle.get("redis_reachable"))
+    celery_bundle = celery_health_bundle(settings, redis_reachable=redis_ok)
     health_data: dict[str, Any] = {
         "application": {
             "name": settings.app_name,
@@ -110,6 +132,16 @@ async def health_probe(request: Request) -> JSONResponse:
             "jwt_validation_ready": issuer_ready or bool(settings.test_jwt_secret),
             "test_signing_enabled": bool(settings.test_jwt_secret),
         },
+        "storage": storage_bundle,
+        "redis": redis_bundle,
+        "streaming_ready": streaming_ready,
+        "celery": celery_bundle,
+        "parsing": parsing_bundle,
+        "vector": vector_bundle,
+        "retrieval": retrieval_bundle,
+        "rag": rag_bundle,
+        "workflow": workflow_bundle,
+        "evaluation": evaluation_bundle,
         "environment": settings.app_env,
         "metadata": {
             "api_prefix": settings.api_prefix,

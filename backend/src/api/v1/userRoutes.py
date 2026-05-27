@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
 
-from auth.userAccess import get_application_user
-from models.userModel import User
-from schemas.userSchemas import OrganizationSummaryResponse, UserProfileResponse
-from shared.responseFormatter import format_success_response
+from src.auth.userAccess import get_application_user
+from src.models.userModel import User
+from src.schemas.userSchemas import OrganizationSummaryResponse, UserProfileResponse
+from src.shared.responseFormatter import format_success_response
 
 user_router = APIRouter(prefix="/users", tags=["users"])
 
