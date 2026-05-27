@@ -4,9 +4,9 @@ from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from models.roleModel import Role
-from models.userModel import User
-from models.userRolesTable import user_roles_table
+from src.models.roleModel import Role
+from src.models.userModel import User
+from src.models.userRolesTable import user_roles_table
 
 
 class UserRepository:

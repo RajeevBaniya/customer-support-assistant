@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.organizationModel import Organization
+from src.models.organizationModel import Organization
 
 
 def normalize_slug(raw: str) -> str:
