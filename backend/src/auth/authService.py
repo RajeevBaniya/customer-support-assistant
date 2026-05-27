@@ -1,12 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.appEnvironment import AppEnvironment
-from models.organizationModel import Organization
-from models.userModel import User
-from repositories.organizationRepository import OrganizationRepository
-from repositories.userRepository import UserRepository
-from schemas.authSchemas import ClerkTokenPayload
-from shared.customExceptions import AuthException, BaseApplicationException
+from src.core.appEnvironment import AppEnvironment
+from src.models.organizationModel import Organization
+from src.models.userModel import User
+from src.repositories.organizationRepository import OrganizationRepository
+from src.repositories.userRepository import UserRepository
+from src.schemas.authSchemas import ClerkTokenPayload
+from src.shared.customExceptions import AuthException, BaseApplicationException
 
 
 def _workspace_title(given_name: str | None) -> str:

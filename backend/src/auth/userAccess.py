@@ -1,12 +1,12 @@
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth.authService import load_or_create_user
-from core.appEnvironment import AppEnvironment
-from database.databaseSession import get_db_session
-from models.userModel import User
-from schemas.authSchemas import ClerkTokenPayload
-from shared.customExceptions import AuthException
+from src.auth.authService import load_or_create_user
+from src.core.appEnvironment import AppEnvironment
+from src.database.databaseSession import get_db_session
+from src.models.userModel import User
+from src.schemas.authSchemas import ClerkTokenPayload
+from src.shared.customExceptions import AuthException
 
 
 def clerk_token_from_request(request: Request) -> ClerkTokenPayload:

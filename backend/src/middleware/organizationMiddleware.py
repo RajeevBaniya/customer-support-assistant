@@ -4,9 +4,9 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from core.appEnvironment import AppEnvironment
-from observability.structuredLogger import get_logger
-from shared.responseFormatter import format_error_response
+from src.core.appEnvironment import AppEnvironment
+from src.observability.structuredLogger import get_logger
+from src.shared.responseFormatter import format_error_response
 
 logger = get_logger("middleware.organization")
 
@@ -27,8 +27,9 @@ class OrganizationMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         settings: AppEnvironment = request.app.state.settings
         path = request.url.path
-        prefix = f"{settings.api_prefix}/users"
-        if path.startswith(prefix):
+        prefix_users = f"{settings.api_prefix}/users"
+        prefix_documents = f"{settings.api_prefix}/documents"
+        if path.startswith(prefix_users) or path.startswith(prefix_documents):
             token = getattr(request.state, "clerk_token", None)
             if token is None:
                 logger.warning("organization_route_without_auth", path=path)

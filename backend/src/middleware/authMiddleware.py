@@ -4,11 +4,11 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from auth.clerkAuth import verify_bearer_token
-from core.appEnvironment import AppEnvironment
-from observability.structuredLogger import get_logger
-from shared.customExceptions import AuthException
-from shared.responseFormatter import format_error_response
+from src.auth.clerkAuth import verify_bearer_token
+from src.core.appEnvironment import AppEnvironment
+from src.observability.structuredLogger import get_logger
+from src.shared.customExceptions import AuthException
+from src.shared.responseFormatter import format_error_response
 
 logger = get_logger("middleware.auth")
 
@@ -24,7 +24,12 @@ def _is_public_path(path: str) -> bool:
 def _requires_bearer(path: str, api_prefix: str) -> bool:
     if not path.startswith(api_prefix):
         return False
-    return path.startswith(f"{api_prefix}/auth/") or path.startswith(f"{api_prefix}/users/")
+    return (
+        path.startswith(f"{api_prefix}/auth/")
+        or path.startswith(f"{api_prefix}/users/")
+        or path.startswith(f"{api_prefix}/documents")
+        or path.startswith(f"{api_prefix}/chat/")
+    )
 
 
 def _json_response(status: int, body: dict[str, object]) -> Response:

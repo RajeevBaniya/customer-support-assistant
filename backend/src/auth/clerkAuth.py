@@ -6,9 +6,9 @@ from typing import Any, cast
 import jwt
 from jwt import PyJWKClient
 
-from core.appEnvironment import AppEnvironment
-from schemas.authSchemas import ClerkTokenPayload
-from shared.customExceptions import AuthException
+from src.core.appEnvironment import AppEnvironment
+from src.schemas.authSchemas import ClerkTokenPayload
+from src.shared.customExceptions import AuthException
 
 
 def _decode_hs256(token: str, secret: str) -> dict[str, Any]:
