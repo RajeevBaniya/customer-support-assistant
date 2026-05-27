@@ -5,23 +5,31 @@ from datetime import UTC, datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-import models  # noqa: F401
-from api.v1.authRoutes import auth_router
-from api.v1.healthRoutes import health_router
-from api.v1.userRoutes import user_router
-from core.appEnvironment import get_app_environment
-from database.databaseManager import DatabaseManager
-from database.databaseSession import (
+from src import models
+from src.api.v1.authRoutes import auth_router
+from src.api.v1.chatRoutes import chat_router
+from src.api.v1.documentRoutes import document_router
+from src.api.v1.evaluationRoutes import evaluation_router
+from src.api.v1.healthRoutes import health_router
+from src.api.v1.ragRoutes import rag_router
+from src.api.v1.retrievalRoutes import retrieval_router
+from src.api.v1.userRoutes import user_router
+from src.core.appEnvironment import get_app_environment
+from src.database.databaseManager import DatabaseManager
+from src.database.databaseSession import (
     clear_session_factory,
     configure_session_factory,
     get_session_factory,
 )
-from database.migrationState import inspect_migration_state
-from middleware.authMiddleware import AuthMiddleware
-from middleware.organizationMiddleware import OrganizationMiddleware
-from observability.structuredLogger import configure_structured_logging, get_logger
-from shared.customExceptions import BaseApplicationException
-from shared.responseFormatter import format_error_response
+from src.database.migrationState import inspect_migration_state
+from src.evaluation import models as evaluation_models
+from src.middleware.authMiddleware import AuthMiddleware
+from src.middleware.organizationMiddleware import OrganizationMiddleware
+from src.observability.structuredLogger import configure_structured_logging, get_logger
+from src.shared.customExceptions import BaseApplicationException
+from src.shared.responseFormatter import format_error_response
+
+_ = (models.__spec__, evaluation_models.__spec__)
 
 logger = get_logger(__name__)
 
@@ -45,6 +53,11 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(health_router)
     application.include_router(auth_router, prefix=settings.api_prefix)
     application.include_router(user_router, prefix=settings.api_prefix)
+    application.include_router(chat_router, prefix=settings.api_prefix)
+    application.include_router(document_router, prefix=settings.api_prefix)
+    application.include_router(evaluation_router, prefix=settings.api_prefix)
+    application.include_router(retrieval_router, prefix=settings.api_prefix)
+    application.include_router(rag_router, prefix=settings.api_prefix)
 
 
 def create_application() -> FastAPI:
