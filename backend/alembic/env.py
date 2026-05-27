@@ -1,19 +1,33 @@
 import os
-import sys
 from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, pool
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+from src import models
+from src.core.appEnvironment import AppEnvironment
+from src.database.databaseBaseModel import Base
+from src.database.urlNormalization import resolve_database_urls
+from src.evaluation import models as evaluation_models
 
-import models  # noqa: E402, F401
-from database.databaseBaseModel import Base  # noqa: E402
-from database.syncUrl import to_psycopg  # noqa: E402
+_ = (models.__spec__, evaluation_models.__spec__)
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _configure_env() -> None:
+    load_dotenv(ROOT / ".env")
+    for _key, _val in (
+        ("APP_ENV", "development"),
+        ("DEBUG", "false"),
+    ):
+        if not os.environ.get(_key, "").strip():
+            os.environ[_key] = _val
+
+
+_configure_env()
 
 config = context.config
 if config.config_file_name is not None:
@@ -23,10 +37,8 @@ target_metadata = Base.metadata
 
 
 def get_sync_url() -> str:
-    raw = os.environ.get("DATABASE_URL", "").strip()
-    if not raw:
-        raise RuntimeError("DATABASE_URL is required for migrations")
-    return to_psycopg(raw)
+    settings = AppEnvironment()  # type: ignore[call-arg]
+    return resolve_database_urls(settings.database_url).sync_alembic_url
 
 
 def run_migrations_offline() -> None:
