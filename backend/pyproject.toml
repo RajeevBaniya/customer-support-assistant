@@ -12,17 +12,7 @@ target-version = ["py312"]
 profile = "black"
 line_length = 100
 known_first_party = [
-    "api",
-    "auth",
-    "core",
-    "middleware",
-    "shared",
-    "observability",
-    "database",
-    "models",
-    "repositories",
-    "schemas",
-    "tests",
+    "src",
 ]
 src_paths = ["src"]
 
@@ -42,13 +32,12 @@ select = [
 ]
 ignore = ["B008"]
 
-[tool.ruff.lint.per-file-ignores]
-"src/main.py" = ["E402"]
-"alembic/env.py" = ["E402"]
-"src/tests/conftest.py" = ["E402"]
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
 
 [tool.mypy]
 python_version = "3.12"
+explicit_package_bases = true
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -58,27 +47,34 @@ check_untyped_defs = true
 no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
-mypy_path = "src"
+mypy_path = "."
 packages = [
-    "api",
-    "auth",
-    "core",
-    "middleware",
-    "shared",
-    "observability",
-    "database",
-    "models",
-    "repositories",
-    "schemas",
+    "src",
 ]
 
 [[tool.mypy.overrides]]
-module = ["tests.*"]
+module = [
+    "sentence_transformers.*",
+    "numpy",
+    "numpy.*",
+    "pinecone",
+    "pinecone.*",
+    "cloudinary",
+    "cloudinary.*",
+    "redis",
+    "redis.*",
+    "celery",
+    "celery.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["src.tests.*"]
 disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["src/tests"]
-pythonpath = ["src"]
+pythonpath = ["."]
 python_files = ["*Check.py", "test_*.py", "*_test.py"]

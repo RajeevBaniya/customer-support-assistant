@@ -1,4 +1,4 @@
-# Environment
+﻿# Environment
 .env
 
 # Python virtual environment
@@ -6,7 +6,9 @@
 
 # Python cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
+*.pyc
 
 # Tooling cache
 .pytest_cache/
