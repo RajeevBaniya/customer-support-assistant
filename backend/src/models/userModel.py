@@ -5,10 +5,10 @@ from uuid import UUID
 from sqlalchemy import ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.baseModel import BaseRow
-from models.organizationModel import Organization
-from models.roleModel import Role
-from models.userRolesTable import user_roles_table
+from src.models.baseModel import BaseRow
+from src.models.organizationModel import Organization
+from src.models.roleModel import Role
+from src.models.userRolesTable import user_roles_table
 
 
 class User(BaseRow):

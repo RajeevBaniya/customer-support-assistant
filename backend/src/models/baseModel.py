@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import DateTime, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from database.databaseBaseModel import Base
+from src.database.databaseBaseModel import Base
 
 
 class UUIDPrimaryKeyMixin:

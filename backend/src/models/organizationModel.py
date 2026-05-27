@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.baseModel import BaseRow
+from src.models.baseModel import BaseRow
 
 if TYPE_CHECKING:
-    from models.userModel import User
+    from src.models.userModel import User
 
 
 class Organization(BaseRow):
