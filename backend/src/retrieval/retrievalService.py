@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.appEnvironment import AppEnvironment
 from src.documents.documentRepository import DocumentRepository
+from src.observability.metrics.recorders import record_retrieval
 from src.observability.structuredLogger import get_logger
 from src.retrieval.reranking import run_rerank_dedupe_pipeline
 from src.retrieval.retrievalFilters import document_is_retrieval_ready, filter_scored_hits
@@ -94,6 +95,16 @@ class RetrievalService:
                 retrieval_request_ms=request_ms,
                 rerank_ms=0.0,
             )
+            record_retrieval(
+                organization_id=organization_id,
+                duration_s=request_ms / 1000.0,
+                final_chunks=0,
+                avg_similarity=0.0,
+                rerank_input=0,
+                post_dedup=0,
+                near_dup_dropped=0,
+                top_k=top_k,
+            )
             return RetrievalSearchResponse(items=[], query=body.query, top_k=top_k)
 
         doc_ids = list({h.document_id for h, _ in post_sim})
@@ -135,6 +146,17 @@ class RetrievalService:
             pinecone_ms=vec_timings["pinecone_ms"],
             retrieval_request_ms=request_ms,
             rerank_ms=pipe.rerank_ms,
+        )
+        avg_sim = sum(it.similarity_score for it in items) / max(1, len(items))
+        record_retrieval(
+            organization_id=organization_id,
+            duration_s=request_ms / 1000.0,
+            final_chunks=len(items),
+            avg_similarity=avg_sim,
+            rerank_input=pipe.rerank_input_count,
+            post_dedup=pipe.after_dedup_count,
+            near_dup_dropped=pipe.near_dup_dropped,
+            top_k=top_k,
         )
         return RetrievalSearchResponse(items=items, query=body.query, top_k=top_k)
 

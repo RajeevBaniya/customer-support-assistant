@@ -15,6 +15,7 @@ from src.evaluation.evaluationConstants import (
     STATUS_FAILED,
     STATUS_QUEUED,
     STATUS_RUNNING,
+    evaluation_result_passes,
 )
 from src.evaluation.models.evaluationResultModel import EvaluationResult
 from src.evaluation.models.evaluationRunModel import EvaluationRun
@@ -25,6 +26,7 @@ from src.evaluation.repositories.evaluationRunRepository import EvaluationRunRep
 from src.evaluation.scoring.textSignals import build_retrieved_context, chunk_refs_from_state
 from src.jobs.evaluationTasks import enqueue_benchmark_evaluation
 from src.models.userModel import User
+from src.observability.metrics.recorders import record_evaluation_run, record_hallucination_flag
 from src.observability.structuredLogger import get_logger
 from src.schemas.evaluationSchemas import EvaluationRunRequest
 from src.schemas.retrievalSchemas import RetrievalSearchRequest
@@ -62,6 +64,7 @@ class EvaluationRunService:
             error_message=None,
         )
         await self._runs.add(run)
+        record_evaluation_run(run_type=RUN_SINGLE, status=STATUS_RUNNING)
         rag = RagService.from_request(self._session, self._settings)
         t0 = perf_counter()
         try:
@@ -77,6 +80,7 @@ class EvaluationRunService:
                 organization_id=user.organization_id,
                 fields={"status": STATUS_FAILED, "error_message": str(exc)[:8000]},
             )
+            record_evaluation_run(run_type=RUN_SINGLE, status=STATUS_FAILED)
             logger.warning(
                 "evaluation_run_failed",
                 run_id=str(run.id),
@@ -117,6 +121,11 @@ class EvaluationRunService:
             dataset_row_index=None,
         )
         await self._results.add(result)
+        if not evaluation_result_passes(
+            hallucination_score=float(scores["hallucination_score"]),
+            faithfulness_score=float(scores["faithfulness_score"]),
+        ):
+            record_hallucination_flag()
         await self._runs.update_fields(
             run.id,
             organization_id=user.organization_id,
@@ -126,6 +135,7 @@ class EvaluationRunService:
                 "workflow_trace_summary": out.get("workflow_trace_summary"),
             },
         )
+        record_evaluation_run(run_type=RUN_SINGLE, status=STATUS_COMPLETED)
         logger.info(
             "evaluation_run_completed",
             run_id=str(run.id),
@@ -157,6 +167,7 @@ class EvaluationRunService:
             error_message=None,
         )
         await self._runs.add(run)
+        record_evaluation_run(run_type=RUN_BENCHMARK, status=STATUS_QUEUED)
         enqueue_benchmark_evaluation(
             run_id=run.id,
             organization_id=user.organization_id,
