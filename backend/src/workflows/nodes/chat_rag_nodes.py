@@ -169,6 +169,8 @@ async def generation_node(state: ChatRagState, config: RunnableConfig) -> dict[s
             settings,
             system=state["system"],
             user=state["user"],
+            organization_id=orch.parse_organization_id(state["organization_id"]),
+            route_type="rag",
         )
         return {
             "answer": answer,

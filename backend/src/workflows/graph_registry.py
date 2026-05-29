@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any, cast
 
+from src.observability.metrics.recorders import record_workflow_graph, record_workflow_node
+from src.observability.tracing.correlation import start_workflow_trace
 from src.workflows.graphs.chat_rag_graph import build_chat_rag_graph
 from src.workflows.state.chat_rag_state import ChatRagState
 from src.workflows.trace.workflow_trace_reducer import workflow_trace_reducer
@@ -33,8 +36,23 @@ async def ainvoke_chat_rag_graph(
     state: ChatRagState,
     config: dict[str, Any],
 ) -> ChatRagState:
+    start_workflow_trace()
     app = get_compiled_chat_rag_graph()
-    out = cast(ChatRagState, await app.ainvoke(state, config))
+    t0 = perf_counter()
+    status = "ok"
+    try:
+        out = cast(ChatRagState, await app.ainvoke(state, config))
+    except Exception:
+        status = "error"
+        scratch = config.get("configurable", {}).get("trace_scratch")
+        if isinstance(scratch, list):
+            for row in scratch:
+                if isinstance(row, dict):
+                    stage = str(row.get("stage") or "unknown")
+                    record_workflow_node(graph="chat_rag", node=stage, status="error")
+        raise
+    finally:
+        record_workflow_graph(graph="chat_rag", status=status, duration_s=perf_counter() - t0)
     scratch = config.get("configurable", {}).get("trace_scratch")
     if isinstance(scratch, list) and scratch:
         return merge_failure_trace(out, scratch)
