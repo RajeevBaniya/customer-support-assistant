@@ -6,11 +6,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from src import models
+from src.api.v1.analyticsRoutes import analytics_router
 from src.api.v1.authRoutes import auth_router
 from src.api.v1.chatRoutes import chat_router
 from src.api.v1.documentRoutes import document_router
 from src.api.v1.evaluationRoutes import evaluation_router
 from src.api.v1.healthRoutes import health_router
+from src.api.v1.metricsRoutes import metrics_router
 from src.api.v1.ragRoutes import rag_router
 from src.api.v1.retrievalRoutes import retrieval_router
 from src.api.v1.userRoutes import user_router
@@ -24,6 +26,7 @@ from src.database.databaseSession import (
 from src.database.migrationState import inspect_migration_state
 from src.evaluation import models as evaluation_models
 from src.middleware.authMiddleware import AuthMiddleware
+from src.middleware.observabilityMiddleware import ObservabilityMiddleware
 from src.middleware.organizationMiddleware import OrganizationMiddleware
 from src.observability.structuredLogger import configure_structured_logging, get_logger
 from src.shared.customExceptions import BaseApplicationException
@@ -51,11 +54,13 @@ def _register_exception_handlers(application: FastAPI) -> None:
 def _register_routers(application: FastAPI) -> None:
     settings = application.state.settings
     application.include_router(health_router)
+    application.include_router(metrics_router)
     application.include_router(auth_router, prefix=settings.api_prefix)
     application.include_router(user_router, prefix=settings.api_prefix)
     application.include_router(chat_router, prefix=settings.api_prefix)
     application.include_router(document_router, prefix=settings.api_prefix)
     application.include_router(evaluation_router, prefix=settings.api_prefix)
+    application.include_router(analytics_router, prefix=settings.api_prefix)
     application.include_router(retrieval_router, prefix=settings.api_prefix)
     application.include_router(rag_router, prefix=settings.api_prefix)
 
@@ -115,6 +120,7 @@ def create_application() -> FastAPI:
     _register_exception_handlers(application)
     application.add_middleware(OrganizationMiddleware)
     application.add_middleware(AuthMiddleware)
+    application.add_middleware(ObservabilityMiddleware)
     _register_routers(application)
 
     logger.info(

@@ -14,7 +14,7 @@ logger = get_logger("middleware.auth")
 
 
 def _is_public_path(path: str) -> bool:
-    if path in {"/live", "/ready", "/health"}:
+    if path in {"/live", "/ready", "/health", "/metrics"}:
         return True
     if path.startswith("/docs") or path.startswith("/redoc") or path == "/openapi.json":
         return True
