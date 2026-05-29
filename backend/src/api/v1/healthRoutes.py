@@ -8,6 +8,7 @@ from src.ai.ragHealth import rag_health
 from src.database.db_readiness import db_section, is_db_ready
 from src.observability.celeryHealth import celery_health_bundle
 from src.observability.evaluation_health import evaluation_health_bundle
+from src.observability.observability_health import observability_health_bundle
 from src.observability.redisHealth import redis_health
 from src.observability.structuredLogger import get_logger
 from src.observability.workflow_health import workflow_health_bundle
@@ -116,6 +117,7 @@ async def health_probe(request: Request) -> JSONResponse:
     rag_bundle = await rag_health(settings)
     workflow_bundle = workflow_health_bundle()
     evaluation_bundle = evaluation_health_bundle()
+    observability_bundle = observability_health_bundle()
     streaming_ready = bool(
         redis_bundle.get("redis_configured") and redis_bundle.get("redis_reachable")
     )
@@ -142,6 +144,7 @@ async def health_probe(request: Request) -> JSONResponse:
         "rag": rag_bundle,
         "workflow": workflow_bundle,
         "evaluation": evaluation_bundle,
+        "observability": observability_bundle,
         "environment": settings.app_env,
         "metadata": {
             "api_prefix": settings.api_prefix,
