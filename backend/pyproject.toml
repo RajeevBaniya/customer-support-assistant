@@ -65,6 +65,12 @@ module = [
     "redis.*",
     "celery",
     "celery.*",
+    "prometheus_client",
+    "prometheus_client.*",
+    "langgraph",
+    "langgraph.*",
+    "langchain_core",
+    "langchain_core.*",
 ]
 ignore_missing_imports = true
 
