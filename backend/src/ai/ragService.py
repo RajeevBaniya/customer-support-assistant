@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.appEnvironment import AppEnvironment
+from src.observability.metrics.recorders import record_rag_citations
 from src.observability.structuredLogger import get_logger
 from src.retrieval.retrievalService import RetrievalService
 from src.schemas.ragSchemas import CitationItem, RagAskResponse
@@ -114,6 +115,7 @@ class RagService:
             provider=str(st.get("provider") or "none"),
             retrieval_top_k=top_k,
         )
+        record_rag_citations(len(citations))
         return response, st
 
     async def ask(

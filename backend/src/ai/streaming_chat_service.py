@@ -15,6 +15,7 @@ from src.conversations.messageRepository import MessageRepository
 from src.core.appEnvironment import AppEnvironment
 from src.models.messageModel import Message
 from src.models.userModel import User
+from src.observability.metrics.recorders import record_chat_request, record_chat_stream_duration
 from src.realtime.generation_registry import GenerationRegistry
 from src.realtime.redis_connection import create_async_redis_client
 from src.realtime.stream_state import format_sse_event
@@ -93,6 +94,8 @@ class StreamingChatService:
         body: ChatMessageRequest,
     ) -> AsyncIterator[str]:
         generation_id = uuid4()
+        record_chat_request(mode="stream")
+        stream_t0 = time.monotonic()
         registry = GenerationRegistry(self._redis, self._settings)
         deadline = time.monotonic() + float(self._settings.chat_stream_max_duration_seconds)
 
@@ -185,6 +188,8 @@ class StreamingChatService:
                     self._settings,
                     system=prep.system,
                     user=prep.user,
+                    organization_id=actor.organization_id,
+                    route_type="chat_stream",
                 ):
                     provider_used = prov
                     if await registry.is_cancelled(
@@ -260,6 +265,7 @@ class StreamingChatService:
                 {"type": "error", "data": {"code": "stream_unexpected", "message": str(exc)}}
             )
         finally:
+            record_chat_stream_duration(time.monotonic() - stream_t0)
             await registry.drop_generation(
                 organization_id=actor.organization_id,
                 conversation_id=conv.id,

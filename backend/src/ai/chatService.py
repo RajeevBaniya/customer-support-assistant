@@ -12,6 +12,7 @@ from src.core.appEnvironment import AppEnvironment
 from src.models.conversationModel import Conversation
 from src.models.messageModel import Message
 from src.models.userModel import User
+from src.observability.metrics.recorders import record_chat_request
 from src.schemas.chatSchemas import (
     ChatMessageRequest,
     ChatMessageResponse,
@@ -80,6 +81,7 @@ class ChatService:
         return conv, user_row, memory_text
 
     async def post_message(self, *, actor: User, body: ChatMessageRequest) -> ChatMessageResponse:
+        record_chat_request(mode="message")
         conv, user_row, memory_text = await self.attach_user_message(actor=actor, body=body)
 
         rag = RagService.from_request(self._session, self._settings)

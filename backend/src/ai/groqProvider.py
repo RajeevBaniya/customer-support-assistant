@@ -4,7 +4,22 @@ from typing import Any, cast
 
 import httpx
 
+from src.ai.generationUsage import GenerationUsage, usage_from_provider_counts
 from src.core.appEnvironment import AppEnvironment
+
+
+def _parse_groq_usage(data: dict[str, Any]) -> GenerationUsage | None:
+    usage = cast(dict[str, Any], data.get("usage") or {})
+    if not usage:
+        return None
+    prompt = usage.get("prompt_tokens")
+    completion = usage.get("completion_tokens")
+    if prompt is None and completion is None:
+        return None
+    return usage_from_provider_counts(
+        prompt_tokens=int(prompt or 0),
+        completion_tokens=int(completion or 0),
+    )
 
 
 async def groq_chat(
@@ -13,7 +28,7 @@ async def groq_chat(
     system: str,
     user: str,
     timeout_seconds: float,
-) -> str:
+) -> tuple[str, GenerationUsage | None]:
     key = settings.groq_api_key
     if not key or not str(key).strip():
         raise RuntimeError("groq_key_missing")
@@ -45,7 +60,7 @@ async def groq_chat(
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError("groq_empty_content")
-    return content.strip()
+    return content.strip(), _parse_groq_usage(data)
 
 
 async def groq_chat_stream(
