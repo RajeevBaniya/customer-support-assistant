@@ -126,7 +126,7 @@ async def health_probe(request: Request) -> JSONResponse:
         redis_bundle.get("redis_configured") and redis_bundle.get("redis_reachable")
     )
     redis_ok = bool(redis_bundle.get("redis_reachable"))
-    celery_bundle = celery_health_bundle(settings, redis_reachable=redis_ok)
+    celery_bundle = await celery_health_bundle(settings, redis_reachable=redis_ok)
     security_bundle = security_health_bundle(settings)
     health_data: dict[str, Any] = {
         "application": {

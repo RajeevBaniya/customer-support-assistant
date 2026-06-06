@@ -22,7 +22,12 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            from fastapi.responses import PlainTextResponse
+
+            response = PlainTextResponse("Internal Server Error", status_code=500)
 
         for name, value in _ALWAYS_ON_HEADERS.items():
             if name != "Content-Security-Policy":
@@ -38,7 +43,9 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
                 "frame-ancestors 'none'"
             )
         else:
-            response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; frame-ancestors 'none'"
+            )
 
         settings = getattr(request.app.state, "settings", None)
         if settings is not None:

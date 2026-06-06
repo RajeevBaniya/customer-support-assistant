@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from src.core.appEnvironment import AppEnvironment
@@ -21,7 +22,7 @@ def celery_worker_ping_sync() -> bool:
         return False
 
 
-def celery_health_bundle(
+async def celery_health_bundle(
     settings: AppEnvironment,
     *,
     redis_reachable: bool,
@@ -29,7 +30,7 @@ def celery_health_bundle(
     broker_ok = bool(redis_reachable and celery_configured(settings))
     worker_ok = False
     if broker_ok:
-        worker_ok = celery_worker_ping_sync()
+        worker_ok = await asyncio.to_thread(celery_worker_ping_sync)
     return {
         "celery_configured": celery_configured(settings),
         "celery_broker_ok": broker_ok,

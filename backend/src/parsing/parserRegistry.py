@@ -1,5 +1,10 @@
 from collections.abc import Callable
 
+from src.parsing.docxParser import extract_text as docx_extract
+from src.parsing.markdownParser import extract_text as markdown_extract
+from src.parsing.pdfParser import extract_text as pdf_extract
+from src.parsing.textParser import extract_text as text_extract
+
 MIME_TO_PARSER_KEY: dict[str, str] = {
     "application/pdf": "pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
@@ -58,19 +63,11 @@ def parsing_health() -> dict[str, object]:
 def parser_callable_for_mime(mime_type: str) -> Callable[[bytes], str] | None:
     key = parser_key_for_mime(mime_type)
     if key == "pdf":
-        from src.parsing.pdfParser import extract_text as _fn
-
-        return _fn
+        return pdf_extract
     if key == "docx":
-        from src.parsing.docxParser import extract_text as _fn
-
-        return _fn
+        return docx_extract
     if key == "text":
-        from src.parsing.textParser import extract_text as _fn
-
-        return _fn
+        return text_extract
     if key == "markdown":
-        from src.parsing.markdownParser import extract_text as _fn
-
-        return _fn
+        return markdown_extract
     return None
