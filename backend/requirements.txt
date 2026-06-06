@@ -24,6 +24,7 @@ redis==7.4.0
 celery==5.4.0
 langgraph==0.2.59
 prometheus_client==0.21.1
+tiktoken==0.8.0
 
 pytest==8.3.4
 pytest-asyncio==0.24.0

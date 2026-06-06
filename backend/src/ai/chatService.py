@@ -67,7 +67,8 @@ class ChatService:
         )
         memory = prior_turns_block(
             [TurnLine(m.role, m.content) for m in prior],
-            self._settings.chat_history_max_chars,
+            max_chars=self._settings.chat_history_max_chars,
+            max_tokens=self._settings.chat_memory_max_tokens,
         )
         memory_text = memory.strip() or None
 

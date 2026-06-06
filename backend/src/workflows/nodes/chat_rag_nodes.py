@@ -102,7 +102,11 @@ async def context_node(state: ChatRagState, config: RunnableConfig) -> dict[str,
     resp = RetrievalSearchResponse.model_validate(state["retrieval_response"])
     settings = _settings(config)
     capped = orch.cap_chunk_items(resp.items, max_chunks=settings.rag_max_chunks)
-    ctx = build_context_text(capped, max_chars=settings.rag_max_context_chars)
+    ctx = build_context_text(
+        capped,
+        max_chars=settings.rag_max_context_chars,
+        max_tokens=settings.rag_max_context_tokens,
+    )
     return {
         "capped_items": [c.model_dump(mode="json") for c in capped],
         "context_text": ctx.text,

@@ -38,7 +38,12 @@ def _collapse_duplicate_sentences(block: str) -> tuple[str, int]:
     return ". ".join(kept), removed
 
 
-def build_context_text(items: list[RetrievalChunkItem], *, max_chars: int) -> ContextTextResult:
+def build_context_text(
+    items: list[RetrievalChunkItem],
+    *,
+    max_chars: int,
+    max_tokens: int = 6000,
+) -> ContextTextResult:
     dup_total = 0
     parts: list[str] = []
     raw_len = 0
@@ -52,19 +57,25 @@ def build_context_text(items: list[RetrievalChunkItem], *, max_chars: int) -> Co
         raw_len += len(segment)
         parts.append(segment)
     text = "".join(parts).strip()
-    if len(text) <= max_chars:
-        return ContextTextResult(
-            text=text,
-            truncated=False,
-            duplicate_sentences_removed=dup_total,
-            input_char_len=raw_len,
-            output_char_len=len(text),
-        )
-    cut = text[: max_chars - 3].rstrip() + "..."
+
+    import tiktoken
+
+    enc = tiktoken.get_encoding("cl100k_base")
+    tokens = enc.encode(text)
+
+    truncated = False
+    if len(tokens) > max_tokens:
+        text = enc.decode(tokens[: max_tokens - 1]).rstrip() + "..."
+        truncated = True
+
+    if len(text) > max_chars:
+        text = text[: max_chars - 3].rstrip() + "..."
+        truncated = True
+
     return ContextTextResult(
-        text=cut,
-        truncated=True,
+        text=text,
+        truncated=truncated,
         duplicate_sentences_removed=dup_total,
         input_char_len=raw_len,
-        output_char_len=len(cut),
+        output_char_len=len(text),
     )
