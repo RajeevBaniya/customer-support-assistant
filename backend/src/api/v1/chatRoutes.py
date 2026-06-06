@@ -43,7 +43,7 @@ async def stream_chat_message(
     session: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
     settings: AppEnvironment = request.app.state.settings
-    svc = await StreamingChatService.create(session, settings)
+    svc = StreamingChatService.from_request(session, settings, request.app.state.redis_client)
 
     async def event_gen() -> AsyncIterator[bytes]:
         try:
@@ -63,7 +63,7 @@ async def cancel_chat_stream_generations(
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     settings: AppEnvironment = request.app.state.settings
-    svc = await StreamingChatService.create(session, settings)
+    svc = StreamingChatService.from_request(session, settings, request.app.state.redis_client)
     try:
         count = await svc.cancel_generations(actor=user, conversation_id=conversation_id)
     finally:

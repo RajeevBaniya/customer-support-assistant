@@ -14,6 +14,10 @@ def normalize_redis_url_for_tls(url: str) -> str:
     return stripped
 
 
-async def create_async_redis_client(url: str) -> redis_async.Redis:
+def build_redis_client(url: str) -> redis_async.Redis:
     normalized = normalize_redis_url_for_tls(url)
     return redis_async.Redis.from_url(normalized, decode_responses=True)
+
+
+async def create_async_redis_client(url: str) -> redis_async.Redis:
+    return build_redis_client(url)

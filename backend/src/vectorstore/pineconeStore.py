@@ -51,6 +51,8 @@ class PineconeVectorStore(VectorStore):
         document_ids: list[str] | None,
     ) -> list[VectorQueryHit]:
         flt: dict[str, Any] = {"organization_id": {"$eq": organization_id}}
+        if document_ids:
+            flt["document_id"] = {"$in": document_ids}
         n_results = max(1, min(limit, 256))
         raw = self._index.query(
             top_k=n_results,
@@ -89,9 +91,6 @@ class PineconeVectorStore(VectorStore):
                     metadata=meta,
                 )
             )
-        if document_ids:
-            allowed = set(document_ids)
-            hits = [h for h in hits if str(h.document_id) in allowed]
         return hits
 
 

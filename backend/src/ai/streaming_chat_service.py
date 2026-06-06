@@ -1,7 +1,5 @@
-import asyncio
 import time
-from collections.abc import AsyncIterator, Awaitable
-from typing import cast
+from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 from redis.asyncio import Redis
@@ -17,7 +15,6 @@ from src.models.messageModel import Message
 from src.models.userModel import User
 from src.observability.metrics.recorders import record_chat_request, record_chat_stream_duration
 from src.realtime.generation_registry import GenerationRegistry
-from src.realtime.redis_connection import create_async_redis_client
 from src.realtime.stream_state import format_sse_event
 from src.schemas.chatSchemas import ChatMessageRequest, ChatStreamDoneData
 from src.schemas.retrievalSchemas import RetrievalSearchRequest
@@ -40,35 +37,23 @@ class StreamingChatService:
         self._messages = MessageRepository(session)
 
     @classmethod
-    async def create(
+    def from_request(
         cls,
         session: AsyncSession,
         settings: AppEnvironment,
+        redis_client: Redis | None,
     ) -> "StreamingChatService":
-        url = settings.redis_url
-        if url is None or not str(url).strip():
+        if redis_client is None:
             raise BaseApplicationException(
                 "Redis is required for streaming chat",
                 error_code="redis_stream_unavailable",
                 status_code=503,
                 details={"reason": "redis_url_missing"},
             )
-        client = await create_async_redis_client(str(url).strip())
-        try:
-            ping = cast(Awaitable[bool], client.ping())
-            await asyncio.wait_for(ping, timeout=3.0)
-        except Exception as exc:
-            await client.aclose()
-            raise BaseApplicationException(
-                "Redis is not reachable for streaming chat",
-                error_code="redis_stream_unreachable",
-                status_code=503,
-                details={"reason": str(exc)},
-            ) from exc
-        return cls(session, settings, client)
+        return cls(session, settings, redis_client)
 
     async def aclose(self) -> None:
-        await self._redis.aclose()
+        pass
 
     async def cancel_generations(self, *, actor: User, conversation_id: UUID) -> int:
         conv = await self._conversations.get_for_user(
