@@ -20,6 +20,8 @@ from src.schemas.documentSchemas import (
     DocumentSummaryResponse,
     DocumentUploadResponse,
 )
+from src.security.dangerousContentScanner import DangerousContentScanner
+from src.security.scannerInterface import FileScannerInterface
 from src.shared.customExceptions import BaseApplicationException, ResourceNotFoundException
 from src.storage.fileMetadata import read_upload_with_sha256
 from src.storage.storageBinding import storage_provider_for
@@ -32,10 +34,12 @@ class DocumentService:
         session: AsyncSession,
         settings: AppEnvironment,
         storage: StorageProvider,
+        scanner: FileScannerInterface,
     ) -> None:
         self._session = session
         self._settings = settings
         self._storage = storage
+        self._scanner = scanner
         self._repo = DocumentRepository(session)
         self._ingestion_jobs = IngestionJobRepository(session)
 
@@ -45,7 +49,7 @@ class DocumentService:
         session: AsyncSession,
         settings: AppEnvironment,
     ) -> Self:
-        return cls(session, settings, storage_provider_for(settings))
+        return cls(session, settings, storage_provider_for(settings), DangerousContentScanner())
 
     async def upload(
         self,
@@ -65,6 +69,7 @@ class DocumentService:
             declared_content_type=upload.content_type,
             file_bytes=data,
         )
+        self._scanner.scan(data, original)
         stored_name = f"{uuid4().hex}{ext}"
         if not self._settings.cloudinary_configured():
             raise BaseApplicationException(

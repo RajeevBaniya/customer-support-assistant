@@ -60,3 +60,36 @@ class ResourceNotFoundException(BaseApplicationException):
             status_code=404,
             details=details,
         )
+
+
+class RateLimitException(BaseApplicationException):
+    def __init__(
+        self,
+        message: str = "Rate limit exceeded",
+        *,
+        retry_after: int = 60,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged = {"retry_after_seconds": retry_after, **(details or {})}
+        super().__init__(
+            message,
+            error_code="rate_limit_exceeded",
+            status_code=429,
+            details=merged,
+        )
+        self.retry_after = retry_after
+
+
+class WebhookVerificationException(BaseApplicationException):
+    def __init__(
+        self,
+        message: str = "Webhook verification failed",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            error_code="webhook_verification_failed",
+            status_code=400,
+            details=details,
+        )

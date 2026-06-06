@@ -18,6 +18,8 @@ def _is_public_path(path: str) -> bool:
         return True
     if path.startswith("/docs") or path.startswith("/redoc") or path == "/openapi.json":
         return True
+    if path == "/api/v1/webhooks/clerk":
+        return True
     return False
 
 
