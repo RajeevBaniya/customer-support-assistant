@@ -39,9 +39,10 @@ def run_benchmark_evaluation_task(self: Task, run_id: str, organization_id: str)
     async def _run() -> None:
         settings = get_app_environment()
         t_wall = perf_counter()
+        # 1. Read dataset and initialize state (short-lived DB session)
+        rows_raw = None
         async with session_scope() as session:
             runs = EvaluationRunRepository(session)
-            results = EvaluationResultRepository(session)
             ds_repo = BenchmarkDatasetRepository(session)
             run_row = await runs.get_for_org(rid, organization_id=oid)
             if run_row is None or run_row.benchmark_dataset_id is None:
@@ -68,53 +69,62 @@ def run_benchmark_evaluation_task(self: Task, run_id: str, organization_id: str)
                     fields={"status": STATUS_FAILED, "error_message": "dataset_rows_invalid"},
                 )
                 return
+
+        # 2. Instantiate RagService outside main transaction
+        async with session_scope() as session:
             rag = RagService.from_request(session, settings)
-            summary: dict[str, Any] = {"rows_total": len(rows_raw), "rows_ok": 0, "rows_failed": 0}
-            for idx, raw in enumerate(rows_raw):
-                if not isinstance(raw, dict):
-                    summary["rows_failed"] += 1
-                    continue
-                try:
-                    row = BenchmarkDatasetRow.model_validate(raw)
-                except Exception:
-                    summary["rows_failed"] += 1
-                    continue
-                body = RetrievalSearchRequest(
-                    query=row.query,
-                    top_k=row.top_k,
-                    document_ids=row.document_ids,
+
+        # 3. Process each row sequentially without holding active transactions
+        summary: dict[str, Any] = {"rows_total": len(rows_raw), "rows_ok": 0, "rows_failed": 0}
+        for idx, raw in enumerate(rows_raw):
+            if not isinstance(raw, dict):
+                summary["rows_failed"] += 1
+                continue
+            try:
+                row = BenchmarkDatasetRow.model_validate(raw)
+            except Exception:
+                summary["rows_failed"] += 1
+                continue
+            body = RetrievalSearchRequest(
+                query=row.query,
+                top_k=row.top_k,
+                document_ids=row.document_ids,
+            )
+            t0 = perf_counter()
+            try:
+                out = await run_evaluation_graph_pass(
+                    rag=rag,
+                    organization_id=oid,
+                    body=body,
+                    prior_turns_text=row.prior_turns_text,
                 )
-                t0 = perf_counter()
-                try:
-                    out = await run_evaluation_graph_pass(
-                        rag=rag,
-                        organization_id=oid,
-                        body=body,
-                        prior_turns_text=row.prior_turns_text,
-                    )
-                except Exception as exc:
-                    summary["rows_failed"] += 1
-                    logger.warning(
-                        "evaluation_benchmark_row_failed",
-                        run_id=run_id,
-                        row_index=idx,
-                        exc_type=type(exc).__name__,
-                    )
-                    continue
-                latency_ms = int((perf_counter() - t0) * 1000.0)
-                resp = cast(dict[str, Any], out["rag_response"])
-                scores = cast(dict[str, float], out["scores"])
-                pack = cast(dict[str, Any], out["graph_pack"])
-                gst = cast(
-                    ChatRagState,
-                    {
-                        "context_text": pack.get("context_text"),
-                        "capped_items": pack.get("capped_items") or [],
-                    },
+            except Exception as exc:
+                summary["rows_failed"] += 1
+                logger.warning(
+                    "evaluation_benchmark_row_failed",
+                    run_id=run_id,
+                    row_index=idx,
+                    exc_type=type(exc).__name__,
                 )
-                ctx = build_retrieved_context(gst)
-                refs = chunk_refs_from_state(gst)
-                citations_json = list(resp.get("citations") or [])
+                continue
+            latency_ms = int((perf_counter() - t0) * 1000.0)
+            resp = cast(dict[str, Any], out["rag_response"])
+            scores = cast(dict[str, float], out["scores"])
+            pack = cast(dict[str, Any], out["graph_pack"])
+            gst = cast(
+                ChatRagState,
+                {
+                    "context_text": pack.get("context_text"),
+                    "capped_items": pack.get("capped_items") or [],
+                },
+            )
+            ctx = build_retrieved_context(gst)
+            refs = chunk_refs_from_state(gst)
+            citations_json = list(resp.get("citations") or [])
+
+            # Write row result (short-lived DB session)
+            async with session_scope() as session:
+                results = EvaluationResultRepository(session)
                 er = EvaluationResult(
                     run_id=rid,
                     organization_id=oid,
@@ -133,9 +143,12 @@ def run_benchmark_evaluation_task(self: Task, run_id: str, organization_id: str)
                     dataset_row_index=idx,
                 )
                 await results.add(er)
-                summary["rows_ok"] += 1
+            summary["rows_ok"] += 1
 
-            wall_ms = int((perf_counter() - t_wall) * 1000.0)
+        # 4. Save final benchmark stats (short-lived DB session)
+        wall_ms = int((perf_counter() - t_wall) * 1000.0)
+        async with session_scope() as session:
+            runs = EvaluationRunRepository(session)
             await runs.update_fields(
                 rid,
                 organization_id=oid,
@@ -145,12 +158,12 @@ def run_benchmark_evaluation_task(self: Task, run_id: str, organization_id: str)
                     "workflow_trace_summary": summary,
                 },
             )
-            logger.info(
-                "evaluation_benchmark_completed",
-                run_id=run_id,
-                latency_ms=wall_ms,
-                rows_ok=summary["rows_ok"],
-                rows_failed=summary["rows_failed"],
-            )
+        logger.info(
+            "evaluation_benchmark_completed",
+            run_id=run_id,
+            latency_ms=wall_ms,
+            rows_ok=summary["rows_ok"],
+            rows_failed=summary["rows_failed"],
+        )
 
     asyncio.run(_run())

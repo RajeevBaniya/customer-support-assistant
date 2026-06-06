@@ -8,15 +8,6 @@ from src.storage.cloudinaryStorage import CloudinaryStorage
 from src.storage.storageProvider import StorageProvider
 
 
-def _configure_cloudinary(settings: AppEnvironment) -> None:
-    cloudinary.config(
-        cloud_name=(settings.cloudinary_cloud_name or "").strip(),
-        api_key=(settings.cloudinary_api_key or "").strip(),
-        api_secret=(settings.cloudinary_api_secret or "").strip(),
-        secure=True,
-    )
-
-
 async def storage_health(settings: AppEnvironment) -> dict[str, object]:
     configured = settings.cloudinary_configured()
     if not configured:
@@ -29,7 +20,6 @@ async def storage_health(settings: AppEnvironment) -> dict[str, object]:
 
     def _ping() -> bool:
         try:
-            _configure_cloudinary(settings)
             cloudinary.api.ping()
             return True
         except Exception:

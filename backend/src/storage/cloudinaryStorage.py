@@ -16,12 +16,6 @@ from src.storage.storageProvider import StorageProvider
 class CloudinaryStorage(StorageProvider):
     def __init__(self, settings: AppEnvironment) -> None:
         self._settings = settings
-        cloudinary.config(
-            cloud_name=(settings.cloudinary_cloud_name or "").strip(),
-            api_key=(settings.cloudinary_api_key or "").strip(),
-            api_secret=(settings.cloudinary_api_secret or "").strip(),
-            secure=True,
-        )
 
     def _public_id(self, *, organization_id: UUID, document_id: UUID, stored_file_name: str) -> str:
         return f"recallstack/{organization_id}/{document_id}/{stored_file_name}"
