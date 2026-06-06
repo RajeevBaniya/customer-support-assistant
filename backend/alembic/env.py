@@ -1,4 +1,3 @@
-import os
 from logging.config import fileConfig
 from pathlib import Path
 
@@ -15,19 +14,7 @@ from src.evaluation import models as evaluation_models
 _ = (models.__spec__, evaluation_models.__spec__)
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _configure_env() -> None:
-    load_dotenv(ROOT / ".env")
-    for _key, _val in (
-        ("APP_ENV", "development"),
-        ("DEBUG", "false"),
-    ):
-        if not os.environ.get(_key, "").strip():
-            os.environ[_key] = _val
-
-
-_configure_env()
+load_dotenv(ROOT / ".env")
 
 config = context.config
 if config.config_file_name is not None:
@@ -49,14 +36,21 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
     )
+
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
     connectable = create_engine(get_sync_url(), poolclass=pool.NullPool)
+
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+        )
+
         with context.begin_transaction():
             context.run_migrations()
 

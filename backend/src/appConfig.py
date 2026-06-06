@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
+import redis.asyncio as redis_async
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -16,6 +17,7 @@ from src.api.v1.metricsRoutes import metrics_router
 from src.api.v1.ragRoutes import rag_router
 from src.api.v1.retrievalRoutes import retrieval_router
 from src.api.v1.userRoutes import user_router
+from src.api.v1.webhookRoutes import webhook_router
 from src.core.appEnvironment import get_app_environment
 from src.database.databaseManager import DatabaseManager
 from src.database.databaseSession import (
@@ -28,8 +30,9 @@ from src.evaluation import models as evaluation_models
 from src.middleware.authMiddleware import AuthMiddleware
 from src.middleware.observabilityMiddleware import ObservabilityMiddleware
 from src.middleware.organizationMiddleware import OrganizationMiddleware
+from src.middleware.secureHeadersMiddleware import SecureHeadersMiddleware
 from src.observability.structuredLogger import configure_structured_logging, get_logger
-from src.shared.customExceptions import BaseApplicationException
+from src.shared.customExceptions import BaseApplicationException, RateLimitException
 from src.shared.responseFormatter import format_error_response
 
 _ = (models.__spec__, evaluation_models.__spec__)
@@ -48,13 +51,17 @@ def _register_exception_handlers(application: FastAPI) -> None:
             message=exception.message,
             details=exception.details,
         )
-        return JSONResponse(status_code=exception.status_code, content=payload)
+        response = JSONResponse(status_code=exception.status_code, content=payload)
+        if isinstance(exception, RateLimitException):
+            response.headers["Retry-After"] = str(exception.retry_after)
+        return response
 
 
 def _register_routers(application: FastAPI) -> None:
     settings = application.state.settings
     application.include_router(health_router)
     application.include_router(metrics_router)
+    application.include_router(webhook_router)
     application.include_router(auth_router, prefix=settings.api_prefix)
     application.include_router(user_router, prefix=settings.api_prefix)
     application.include_router(chat_router, prefix=settings.api_prefix)
@@ -63,6 +70,16 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(analytics_router, prefix=settings.api_prefix)
     application.include_router(retrieval_router, prefix=settings.api_prefix)
     application.include_router(rag_router, prefix=settings.api_prefix)
+
+
+def _build_redis_client(settings) -> redis_async.Redis | None:
+    url = settings.redis_url
+    if not url or not str(url).strip():
+        return None
+    from src.realtime.redis_connection import normalize_redis_url_for_tls
+
+    normalized = normalize_redis_url_for_tls(str(url))
+    return redis_async.Redis.from_url(normalized, decode_responses=True)
 
 
 def create_application() -> FastAPI:
@@ -89,11 +106,14 @@ def create_application() -> FastAPI:
                 head_revision=migration_report.head_revision,
             )
 
+        redis_client = _build_redis_client(settings)
+
         application.state.settings = settings
         application.state.started_at = datetime.now(UTC)
         application.state.database_manager = database_manager
         application.state.migration_report = migration_report
         application.state.async_session_factory = get_session_factory()
+        application.state.redis_client = redis_client
 
         connected = await database_manager.verify_connection()
         startup_logger.info(
@@ -104,6 +124,9 @@ def create_application() -> FastAPI:
 
         startup_logger.info("application_started")
         yield
+
+        if redis_client is not None:
+            await redis_client.aclose()
 
         await database_manager.close()
         clear_session_factory()
@@ -121,6 +144,7 @@ def create_application() -> FastAPI:
     application.add_middleware(OrganizationMiddleware)
     application.add_middleware(AuthMiddleware)
     application.add_middleware(ObservabilityMiddleware)
+    application.add_middleware(SecureHeadersMiddleware)
     _register_routers(application)
 
     logger.info(

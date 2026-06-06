@@ -109,6 +109,51 @@ class AppEnvironment(BaseSettings):
         le=600,
     )
 
+    clerk_webhook_signing_key: str | None = Field(default=None, alias="CLERK_WEBHOOK_SIGNING_KEY")
+
+    rate_limit_window_seconds: int = Field(
+        default=60,
+        alias="RATE_LIMIT_WINDOW_SECONDS",
+        ge=1,
+        le=3600,
+    )
+    rate_limit_chat_message: int = Field(
+        default=60,
+        alias="RATE_LIMIT_CHAT_MESSAGE",
+        ge=1,
+        le=10000,
+    )
+    rate_limit_chat_stream: int = Field(
+        default=30,
+        alias="RATE_LIMIT_CHAT_STREAM",
+        ge=1,
+        le=10000,
+    )
+    rate_limit_rag_ask: int = Field(
+        default=60,
+        alias="RATE_LIMIT_RAG_ASK",
+        ge=1,
+        le=10000,
+    )
+    rate_limit_documents_upload: int = Field(
+        default=20,
+        alias="RATE_LIMIT_DOCUMENTS_UPLOAD",
+        ge=1,
+        le=10000,
+    )
+    rate_limit_evaluation_run: int = Field(
+        default=10,
+        alias="RATE_LIMIT_EVALUATION_RUN",
+        ge=1,
+        le=10000,
+    )
+    rate_limit_benchmark_run: int = Field(
+        default=5,
+        alias="RATE_LIMIT_BENCHMARK_RUN",
+        ge=1,
+        le=10000,
+    )
+
     @field_validator("app_name", mode="before")
     @classmethod
     def app_name_or_default(cls, value: object) -> str:
@@ -223,13 +268,20 @@ class AppEnvironment(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def production_requires_clerk_issuer(self) -> Self:
-        if self.app_env.lower() == "production":
+    def strict_env_requires_clerk_issuer(self) -> Self:
+        env = self.app_env.lower()
+        if env in {"production", "staging"}:
             if not self.clerk_jwt_issuer or not str(self.clerk_jwt_issuer).strip():
-                raise ValueError("CLERK_JWT_ISSUER is required when APP_ENV is production")
+                raise ValueError(
+                    "CLERK_JWT_ISSUER is required when APP_ENV is production or staging"
+                )
         return self
 
 
 @lru_cache
 def get_app_environment() -> AppEnvironment:
-    return AppEnvironment()  # type: ignore[call-arg]
+    settings = AppEnvironment()  # type: ignore[call-arg]
+    from src.core.deploymentSettingsValidation import enforce_deployment_settings
+
+    enforce_deployment_settings(settings)
+    return settings

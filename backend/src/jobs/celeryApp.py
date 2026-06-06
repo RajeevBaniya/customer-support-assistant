@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 from typing import Any
 
 from celery import Celery, signals
@@ -48,5 +47,10 @@ def _worker_process_shutdown(**_kwargs: Any) -> None:
     logger.info("celery_worker_db_closed")
 
 
-importlib.import_module("src.jobs.evaluationTasks")
-importlib.import_module("src.jobs.ingestionTasks")
+def _load_task_modules() -> tuple[object, object]:
+    from src.jobs import evaluationTasks, ingestionTasks
+
+    return evaluationTasks, ingestionTasks
+
+
+_ = _load_task_modules()
