@@ -19,12 +19,16 @@ from src.schemas.evaluationSchemas import (
     EvaluationRunQueuedResponse,
     EvaluationRunRequest,
 )
+from src.security.rateLimitDependency import rate_limited
 from src.shared.responseFormatter import format_success_response
 
 evaluation_router = APIRouter(prefix="/evaluation", tags=["evaluation"])
 
+_rate_limit_run = rate_limited("evaluation_run", lambda s: s.rate_limit_evaluation_run)
+_rate_limit_benchmark_run = rate_limited("benchmark_run", lambda s: s.rate_limit_benchmark_run)
 
-@evaluation_router.post("/run")
+
+@evaluation_router.post("/run", dependencies=[Depends(_rate_limit_run)])
 async def post_evaluation_run(
     request: Request,
     body: EvaluationRunRequest,
@@ -71,7 +75,7 @@ async def get_evaluation_run(
     return JSONResponse(content=out)
 
 
-@evaluation_router.post("/benchmark/{dataset_id}/run")
+@evaluation_router.post("/benchmark/{dataset_id}/run", dependencies=[Depends(_rate_limit_benchmark_run)])
 async def post_benchmark_run(
     request: Request,
     dataset_id: UUID,

@@ -9,12 +9,15 @@ from src.core.appEnvironment import AppEnvironment
 from src.database.databaseSession import get_db_session
 from src.documents.documentService import DocumentService
 from src.models.userModel import User
+from src.security.rateLimitDependency import rate_limited
 from src.shared.responseFormatter import format_success_response
 
 document_router = APIRouter(prefix="/documents", tags=["documents"])
 
+_rate_limit_upload = rate_limited("documents_upload", lambda s: s.rate_limit_documents_upload)
 
-@document_router.post("/upload")
+
+@document_router.post("/upload", dependencies=[Depends(_rate_limit_upload)])
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),

@@ -12,12 +12,16 @@ from src.core.appEnvironment import AppEnvironment
 from src.database.databaseSession import get_db_session
 from src.models.userModel import User
 from src.schemas.chatSchemas import ChatMessageRequest
+from src.security.rateLimitDependency import rate_limited
 from src.shared.responseFormatter import format_success_response
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
 
+_rate_limit_message = rate_limited("chat_message", lambda s: s.rate_limit_chat_message)
+_rate_limit_stream = rate_limited("chat_stream", lambda s: s.rate_limit_chat_stream)
 
-@chat_router.post("/message")
+
+@chat_router.post("/message", dependencies=[Depends(_rate_limit_message)])
 async def post_chat_message(
     request: Request,
     body: ChatMessageRequest,
@@ -31,7 +35,7 @@ async def post_chat_message(
     return JSONResponse(content=out)
 
 
-@chat_router.post("/stream")
+@chat_router.post("/stream", dependencies=[Depends(_rate_limit_stream)])
 async def stream_chat_message(
     request: Request,
     body: ChatMessageRequest,

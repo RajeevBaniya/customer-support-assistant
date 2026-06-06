@@ -7,9 +7,11 @@ from fastapi.responses import JSONResponse
 from src.ai.ragHealth import rag_health
 from src.database.db_readiness import db_section, is_db_ready
 from src.observability.celeryHealth import celery_health_bundle
+from src.observability.deploymentReadiness import deployment_readiness_bundle
 from src.observability.evaluation_health import evaluation_health_bundle
 from src.observability.observability_health import observability_health_bundle
 from src.observability.redisHealth import redis_health
+from src.observability.security_health import security_health_bundle
 from src.observability.structuredLogger import get_logger
 from src.observability.workflow_health import workflow_health_bundle
 from src.parsing.parserRegistry import parsing_health
@@ -118,11 +120,14 @@ async def health_probe(request: Request) -> JSONResponse:
     workflow_bundle = workflow_health_bundle()
     evaluation_bundle = evaluation_health_bundle()
     observability_bundle = observability_health_bundle()
+    migration_report = getattr(request.app.state, "migration_report", None)
+    deployment_bundle = deployment_readiness_bundle(settings, migration=migration_report)
     streaming_ready = bool(
         redis_bundle.get("redis_configured") and redis_bundle.get("redis_reachable")
     )
     redis_ok = bool(redis_bundle.get("redis_reachable"))
     celery_bundle = celery_health_bundle(settings, redis_reachable=redis_ok)
+    security_bundle = security_health_bundle(settings)
     health_data: dict[str, Any] = {
         "application": {
             "name": settings.app_name,
@@ -138,6 +143,7 @@ async def health_probe(request: Request) -> JSONResponse:
         "redis": redis_bundle,
         "streaming_ready": streaming_ready,
         "celery": celery_bundle,
+        "security": security_bundle,
         "parsing": parsing_bundle,
         "vector": vector_bundle,
         "retrieval": retrieval_bundle,
@@ -145,6 +151,7 @@ async def health_probe(request: Request) -> JSONResponse:
         "workflow": workflow_bundle,
         "evaluation": evaluation_bundle,
         "observability": observability_bundle,
+        "deployment": deployment_bundle,
         "environment": settings.app_env,
         "metadata": {
             "api_prefix": settings.api_prefix,

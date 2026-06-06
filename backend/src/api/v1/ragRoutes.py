@@ -9,12 +9,15 @@ from src.core.appEnvironment import AppEnvironment
 from src.database.databaseSession import get_db_session
 from src.models.userModel import User
 from src.schemas.retrievalSchemas import RetrievalSearchRequest
+from src.security.rateLimitDependency import rate_limited
 from src.shared.responseFormatter import format_success_response
 
 rag_router = APIRouter(prefix="/rag", tags=["rag"])
 
+_rate_limit_ask = rate_limited("rag_ask", lambda s: s.rate_limit_rag_ask)
 
-@rag_router.post("/ask")
+
+@rag_router.post("/ask", dependencies=[Depends(_rate_limit_ask)])
 async def rag_ask(
     request: Request,
     body: RetrievalSearchRequest,
