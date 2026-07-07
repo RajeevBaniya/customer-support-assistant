@@ -38,6 +38,5 @@ Thumbs.db
 .agents/
 
 backend/src/tests/
-backend/.env.example
 backend/Dockerfile
 backend/docker/
