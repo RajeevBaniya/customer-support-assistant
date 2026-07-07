@@ -1,21 +1,43 @@
-# Environment
 .env
+.env.*
+!.env.example
 
-# Python
 .venv/
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 
-# Tooling cache
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 
-# OS files
+node_modules/
+
+dist/
+build/
+coverage/
+
+*.egg-info/
+
+*.db
+*.sqlite3
+
+.vscode/
+.idea/
+
 .DS_Store
 Thumbs.db
 
-.agents
+*.log
+*.tmp
+*.temp
 
-.tests
+.agents/
+
 backend/src/tests/
+backend/.env.example
+backend/Dockerfile
+backend/docker/
