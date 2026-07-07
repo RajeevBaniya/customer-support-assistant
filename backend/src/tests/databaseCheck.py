@@ -7,13 +7,17 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from database.databaseBaseModel import Base
-from database.databaseSession import clear_session_factory, configure_session_factory, session_scope
-from database.migrationState import inspect_migration_state
-from models.organizationModel import Organization
-from models.roleModel import Role
-from models.userModel import User
-from repositories.baseRepository import BaseRepository
+from src.database.databaseBaseModel import Base
+from src.database.databaseSession import (
+    clear_session_factory,
+    configure_session_factory,
+    session_scope,
+)
+from src.database.migrationState import inspect_migration_state
+from src.models.organizationModel import Organization
+from src.models.roleModel import Role
+from src.models.userModel import User
+from src.repositories.baseRepository import BaseRepository
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
