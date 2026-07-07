@@ -26,12 +26,9 @@ def _is_public_path(path: str) -> bool:
 def _requires_bearer(path: str, api_prefix: str) -> bool:
     if not path.startswith(api_prefix):
         return False
-    return (
-        path.startswith(f"{api_prefix}/auth/")
-        or path.startswith(f"{api_prefix}/users/")
-        or path.startswith(f"{api_prefix}/documents")
-        or path.startswith(f"{api_prefix}/chat/")
-    )
+    if path == f"{api_prefix}/webhooks/clerk":
+        return False
+    return True
 
 
 def _json_response(status: int, body: dict[str, object]) -> Response:
