@@ -4,6 +4,7 @@ from uuid import UUID
 
 from src.chunking.chunkMetadata import build_previews, chunk_pages_for_starts
 from src.chunking.chunkStrategy import chunk_plain_text
+from src.core.appEnvironment import AppEnvironment
 from src.parsing.documentParser import parse_uploaded_bytes
 from src.schemas.chunkSchemas import ChunkPreviewItem
 
@@ -25,6 +26,7 @@ async def run_parse_and_preview(
     document_id: UUID,
     mime_type: str,
     data: bytes,
+    settings: AppEnvironment | None = None,
 ) -> ParseChunkOutcome:
     try:
         payload = await parse_uploaded_bytes(mime_type=mime_type, data=data)
@@ -46,7 +48,9 @@ async def run_parse_and_preview(
             parse_error=str(exc),
             parsed_at=None,
         )
-    chunks, starts = chunk_plain_text(payload.text)
+    chunk_size = settings.chunk_size if settings is not None else 1200
+    overlap = settings.chunk_overlap if settings is not None else 150
+    chunks, starts = chunk_plain_text(payload.text, chunk_size=chunk_size, overlap=overlap)
     previews = build_previews(
         document_id=document_id,
         parser_key=payload.parser_key,
