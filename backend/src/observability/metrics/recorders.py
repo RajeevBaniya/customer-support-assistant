@@ -136,3 +136,9 @@ class observe_workflow_node:
         status = "error" if exc_type is not None else "ok"
         record_workflow_node(graph=self._graph, node=self._node, status=status)
         del self._t0
+
+
+def record_hybrid_retrieval(*, pool_size: int, duration_s: float) -> None:
+    m.HYBRID_RETRIEVAL_REQUESTS.inc()
+    m.HYBRID_CANDIDATE_POOL_SIZE.observe(float(pool_size))
+    m.HYBRID_RRF_DURATION.observe(duration_s)

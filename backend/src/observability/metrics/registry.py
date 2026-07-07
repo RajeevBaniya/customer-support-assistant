@@ -97,3 +97,21 @@ WORKFLOW_NODE_RUNS = Counter(
     "LangGraph node executions",
     ["graph", "node", "status"],
 )
+
+HYBRID_RETRIEVAL_REQUESTS = Counter(
+    "recallstack_hybrid_retrieval_requests_total",
+    "Total hybrid retrieval requests",
+)
+
+HYBRID_CANDIDATE_POOL_SIZE = Histogram(
+    "recallstack_hybrid_candidate_pool_size",
+    "Hybrid retrieval candidate pool size",
+    buckets=(10, 20, 50, 75, 100, 150, 200, 300),
+)
+
+HYBRID_RRF_DURATION = Histogram(
+    "recallstack_hybrid_rrf_duration_seconds",
+    "Hybrid RRF merge duration",
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+)
+
