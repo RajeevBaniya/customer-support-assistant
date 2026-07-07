@@ -64,6 +64,22 @@ class AppEnvironment(BaseSettings):
         ge=0.0,
         le=1.0,
     )
+    hybrid_retrieval_enabled: bool = Field(
+        default=True,
+        alias="HYBRID_RETRIEVAL_ENABLED",
+    )
+    hybrid_candidate_pool_size: int = Field(
+        default=100,
+        alias="HYBRID_CANDIDATE_POOL_SIZE",
+        ge=10,
+        le=500,
+    )
+    rrf_k: int = Field(
+        default=60,
+        alias="RRF_K",
+        ge=10,
+        le=200,
+    )
     active_llm_provider: str = Field(default="groq", alias="ACTIVE_LLM_PROVIDER", min_length=1)
     groq_model: str = Field(default="llama-3.1-8b-instant", alias="GROQ_MODEL", min_length=1)
     gemini_model: str = Field(default="gemini-1.5-flash", alias="GEMINI_MODEL", min_length=1)
@@ -72,6 +88,12 @@ class AppEnvironment(BaseSettings):
         default=12000,
         alias="RAG_MAX_CONTEXT_CHARS",
         ge=500,
+        le=500_000,
+    )
+    rag_max_context_tokens: int = Field(
+        default=6000,
+        alias="RAG_MAX_CONTEXT_TOKENS",
+        ge=100,
         le=500_000,
     )
     llm_timeout_seconds: float = Field(default=60.0, alias="LLM_TIMEOUT_SECONDS", ge=5.0, le=300.0)
@@ -85,6 +107,12 @@ class AppEnvironment(BaseSettings):
         default=8000,
         alias="CHAT_HISTORY_MAX_CHARS",
         ge=500,
+        le=100_000,
+    )
+    chat_memory_max_tokens: int = Field(
+        default=2000,
+        alias="CHAT_MEMORY_MAX_TOKENS",
+        ge=100,
         le=100_000,
     )
     redis_stream_ttl_seconds: int = Field(
@@ -109,7 +137,25 @@ class AppEnvironment(BaseSettings):
         le=600,
     )
 
+    chunk_size: int = Field(
+        default=1200,
+        alias="CHUNK_SIZE",
+        ge=10,
+        le=50000,
+    )
+    chunk_overlap: int = Field(
+        default=150,
+        alias="CHUNK_OVERLAP",
+        ge=0,
+        le=25000,
+    )
+
     clerk_webhook_signing_key: str | None = Field(default=None, alias="CLERK_WEBHOOK_SIGNING_KEY")
+
+    cors_allowed_origins: list[str] = Field(default=[], alias="CORS_ALLOWED_ORIGINS")
+    cors_allow_credentials: bool = Field(default=True, alias="CORS_ALLOW_CREDENTIALS")
+    cors_allow_methods: list[str] = Field(default=["*"], alias="CORS_ALLOW_METHODS")
+    cors_allow_headers: list[str] = Field(default=["*"], alias="CORS_ALLOW_HEADERS")
 
     rate_limit_window_seconds: int = Field(
         default=60,
@@ -228,6 +274,32 @@ class AppEnvironment(BaseSettings):
             raise ValueError("API_PREFIX must start with '/'")
         return normalized.rstrip("/") or "/"
 
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            if not value.strip():
+                return []
+            return [x.strip() for x in value.split(",") if x.strip()]
+        if isinstance(value, list):
+            return [str(x).strip() for x in value if str(x).strip()]
+        return []
+
+    @field_validator("cors_allow_methods", "cors_allow_headers", mode="before")
+    @classmethod
+    def parse_cors_lists(cls, value: object) -> list[str]:
+        if value is None:
+            return ["*"]
+        if isinstance(value, str):
+            if not value.strip():
+                return ["*"]
+            return [x.strip() for x in value.split(",") if x.strip()]
+        if isinstance(value, list):
+            return [str(x).strip() for x in value if str(x).strip()]
+        return ["*"]
+
     @property
     def resolved_storage_provider(self) -> str:
         return "cloudinary"
@@ -265,6 +337,12 @@ class AppEnvironment(BaseSettings):
     def retrieval_top_k_consistency(self) -> Self:
         if self.retrieval_default_top_k > self.retrieval_max_top_k:
             raise ValueError("RETRIEVAL_DEFAULT_TOP_K must be <= RETRIEVAL_MAX_TOP_K")
+        return self
+
+    @model_validator(mode="after")
+    def chunk_overlap_consistency(self) -> Self:
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError("CHUNK_OVERLAP must be < CHUNK_SIZE")
         return self
 
     @model_validator(mode="after")

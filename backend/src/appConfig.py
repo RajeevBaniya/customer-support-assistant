@@ -18,7 +18,7 @@ from src.api.v1.ragRoutes import rag_router
 from src.api.v1.retrievalRoutes import retrieval_router
 from src.api.v1.userRoutes import user_router
 from src.api.v1.webhookRoutes import webhook_router
-from src.core.appEnvironment import get_app_environment
+from src.core.appEnvironment import AppEnvironment, get_app_environment
 from src.database.databaseManager import DatabaseManager
 from src.database.databaseSession import (
     clear_session_factory,
@@ -72,14 +72,13 @@ def _register_routers(application: FastAPI) -> None:
     application.include_router(rag_router, prefix=settings.api_prefix)
 
 
-def _build_redis_client(settings) -> redis_async.Redis | None:
+def _build_redis_client(settings: AppEnvironment) -> redis_async.Redis | None:
     url = settings.redis_url
     if not url or not str(url).strip():
         return None
-    from src.realtime.redis_connection import normalize_redis_url_for_tls
+    from src.realtime.redis_connection import build_redis_client
 
-    normalized = normalize_redis_url_for_tls(str(url))
-    return redis_async.Redis.from_url(normalized, decode_responses=True)
+    return build_redis_client(str(url))
 
 
 def create_application() -> FastAPI:
@@ -107,6 +106,16 @@ def create_application() -> FastAPI:
             )
 
         redis_client = _build_redis_client(settings)
+
+        if settings.cloudinary_configured():
+            import cloudinary
+
+            cloudinary.config(
+                cloud_name=(settings.cloudinary_cloud_name or "").strip(),
+                api_key=(settings.cloudinary_api_key or "").strip(),
+                api_secret=(settings.cloudinary_api_secret or "").strip(),
+                secure=True,
+            )
 
         application.state.settings = settings
         application.state.started_at = datetime.now(UTC)
@@ -145,6 +154,17 @@ def create_application() -> FastAPI:
     application.add_middleware(AuthMiddleware)
     application.add_middleware(ObservabilityMiddleware)
     application.add_middleware(SecureHeadersMiddleware)
+
+    from fastapi.middleware.cors import CORSMiddleware
+
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origins,
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=settings.cors_allow_methods,
+        allow_headers=settings.cors_allow_headers,
+    )
+
     _register_routers(application)
 
     logger.info(
