@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
+from rank_bm25 import BM25Okapi
+
+from src.core.appEnvironment import AppEnvironment
 from src.models.documentModel import Document
+from src.observability.metrics.recorders import record_hybrid_retrieval
 from src.vectorstore.queryHit import VectorQueryHit
 
 _TOKEN = re.compile(r"[a-z0-9]+", re.I)
@@ -84,10 +88,41 @@ def run_rerank_dedupe_pipeline(
     query: str,
     doc_map: Mapping[UUID, Document],
     now: datetime,
+    settings: AppEnvironment | None = None,
 ) -> RerankPipelineResult:
     t0 = time.perf_counter()
     if not ready_scored:
         return RerankPipelineResult([], 0, 0, 0, 0.0)
+
+    if settings is not None and settings.hybrid_retrieval_enabled:
+        t_rrf0 = time.perf_counter()
+        corpus = [hit.text for hit, _ in ready_scored]
+        tokenized_corpus = [list(_tokens(txt)) for txt in corpus]
+        bm25 = BM25Okapi(tokenized_corpus)
+        tokenized_query = list(_tokens(query))
+        bm25_scores = bm25.get_scores(tokenized_query)
+
+        dense_sorted_indices = sorted(range(len(ready_scored)), key=lambda idx: (-ready_scored[idx][1], idx))
+        sparse_sorted_indices = sorted(range(len(ready_scored)), key=lambda idx: (-bm25_scores[idx], idx))
+
+        dense_ranks = {idx: rank for rank, idx in enumerate(dense_sorted_indices, start=1)}
+        sparse_ranks = {idx: rank for rank, idx in enumerate(sparse_sorted_indices, start=1)}
+
+        rrf_k = settings.rrf_k
+        rrf_scores: list[float] = []
+        for idx in range(len(ready_scored)):
+            dr = dense_ranks[idx]
+            sr = sparse_ranks[idx]
+            score = 1.0 / (rrf_k + dr) + 1.0 / (rrf_k + sr)
+            rrf_scores.append(score)
+
+        ready_scored = [
+            (ready_scored[idx][0], rrf_scores[idx])
+            for idx in range(len(ready_scored))
+        ]
+        duration_s = time.perf_counter() - t_rrf0
+        record_hybrid_retrieval(pool_size=len(ready_scored), duration_s=duration_s)
+
     qlow = query.strip().lower()
     qtok = _tokens(query)
     enriched: list[tuple[VectorQueryHit, float, float]] = []

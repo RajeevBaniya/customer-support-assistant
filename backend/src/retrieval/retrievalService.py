@@ -49,9 +49,12 @@ class RetrievalService:
         if body.document_ids is not None and len(body.document_ids) == 0:
             return RetrievalSearchResponse(items=[], query=body.query, top_k=top_k)
 
-        fetch_limit = self._settings.retrieval_max_top_k
-        if body.document_ids is not None and len(body.document_ids) > 0:
-            fetch_limit = min(256, fetch_limit * 4)
+        if self._settings.hybrid_retrieval_enabled:
+            fetch_limit = self._settings.hybrid_candidate_pool_size
+        else:
+            fetch_limit = self._settings.retrieval_max_top_k
+            if body.document_ids is not None and len(body.document_ids) > 0:
+                fetch_limit = min(256, fetch_limit * 4)
 
         store = build_vector_store(self._settings)
         t_req0 = perf_counter()
@@ -128,6 +131,7 @@ class RetrievalService:
             query=body.query.strip(),
             doc_map=doc_map,
             now=now,
+            settings=self._settings,
         )
         trimmed = pipe.hits[:top_k]
 
