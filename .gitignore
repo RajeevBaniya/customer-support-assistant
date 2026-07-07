@@ -18,3 +18,4 @@ Thumbs.db
 .agents
 
 .tests
+backend/src/tests/
