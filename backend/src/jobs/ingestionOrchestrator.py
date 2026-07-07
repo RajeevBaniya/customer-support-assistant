@@ -70,6 +70,7 @@ async def run_ingestion_for_job(
         document_id=document.id,
         mime_type=document.mime_type,
         data=data,
+        settings=settings,
     )
     document.parsing_status = parsed.parsing_status
     document.parser_type = parsed.parser_type
