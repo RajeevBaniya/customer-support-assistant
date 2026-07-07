@@ -1,4 +1,4 @@
-from database.db_readiness import is_db_ready
+from src.database.db_readiness import is_db_ready
 
 
 def test_is_db_ready_from_bundle() -> None:

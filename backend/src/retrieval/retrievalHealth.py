@@ -13,6 +13,7 @@ async def retrieval_health(settings: AppEnvironment) -> dict[str, Any]:
     retrieval_pipeline_ready = bool(ready and reranking_ready)
     return {
         "retrieval_enabled": configured,
+        "retrieval_mode": "hybrid" if settings.hybrid_retrieval_enabled else "semantic",
         "vector_search_ready": ready,
         "embedding_provider_ready": vector_bundle.get("embedding_provider_ready"),
         "embedding_model": vector_bundle.get("embedding_model"),
