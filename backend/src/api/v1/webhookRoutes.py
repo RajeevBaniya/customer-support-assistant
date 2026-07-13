@@ -1,10 +1,12 @@
+from datetime import datetime
+from typing import Any
+
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.authService import load_or_create_user
 from src.core.appEnvironment import AppEnvironment
-from src.database.databaseSession import get_db_session
 from src.observability.structuredLogger import get_logger
 from src.schemas.authSchemas import ClerkTokenPayload
 from src.security.auditLogger import audit_logger
@@ -19,7 +21,11 @@ logger = get_logger("api.webhooks")
 _SUPPORTED_EVENTS = frozenset({"user.created", "user.updated"})
 
 
-async def _handle_user_event(payload: dict, session: AsyncSession, settings: AppEnvironment) -> None:
+async def _handle_user_event(
+    payload: dict[str, Any],
+    session: AsyncSession,
+    settings: AppEnvironment,
+) -> None:
     data = payload.get("data", {})
     clerk_user_id: str = data.get("id", "")
     if not clerk_user_id:
@@ -40,7 +46,7 @@ async def _handle_user_event(payload: dict, session: AsyncSession, settings: App
         given_name=data.get("first_name"),
         family_name=data.get("last_name"),
         issuer=settings.clerk_jwt_issuer or "",
-        expires_at="2099-01-01T00:00:00+00:00",
+        expires_at=datetime.fromisoformat("2099-01-01T00:00:00+00:00"),
     )
     await load_or_create_user(session, settings, token)
 

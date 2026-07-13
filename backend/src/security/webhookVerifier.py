@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import time
+from typing import Any
 
 from src.observability.structuredLogger import get_logger
 from src.shared.customExceptions import WebhookVerificationException
@@ -21,7 +22,7 @@ def _compute_signature(signing_key: str, msg_id: str, timestamp: str, body: byte
     else:
         secret_bytes = secret.encode("utf-8")
 
-    to_sign = f"{msg_id}.{timestamp}.".encode("utf-8") + body
+    to_sign = f"{msg_id}.{timestamp}.".encode() + body
     sig = hmac.new(secret_bytes, to_sign, hashlib.sha256).digest()
     import base64
 
@@ -35,20 +36,23 @@ def verify_clerk_webhook(
     svix_timestamp: str,
     svix_signature: str,
     signing_key: str,
-) -> dict:
+) -> dict[str, Any]:
     if not svix_id or not svix_timestamp or not svix_signature:
         raise WebhookVerificationException("Missing required Svix headers")
 
     try:
         ts = int(svix_timestamp)
-    except ValueError:
-        raise WebhookVerificationException("Invalid svix-timestamp value")
+    except ValueError as exc:
+        raise WebhookVerificationException("Invalid svix-timestamp value") from exc
 
     now = int(time.time())
     if abs(now - ts) > _TIMESTAMP_TOLERANCE_SECONDS:
         raise WebhookVerificationException(
             "Webhook timestamp is outside the accepted window",
-            details={"svix_timestamp": svix_timestamp, "tolerance_seconds": _TIMESTAMP_TOLERANCE_SECONDS},
+            details={
+                "svix_timestamp": svix_timestamp,
+                "tolerance_seconds": _TIMESTAMP_TOLERANCE_SECONDS,
+            },
         )
 
     expected_sig = _compute_signature(signing_key, svix_id, svix_timestamp, body)
@@ -67,9 +71,10 @@ def verify_clerk_webhook(
         raise WebhookVerificationException("Webhook signature verification failed")
 
     import json
+    from typing import cast
 
     try:
-        payload = json.loads(body)
+        payload = cast(dict[str, Any], json.loads(body))
     except json.JSONDecodeError as exc:
         raise WebhookVerificationException("Webhook body is not valid JSON") from exc
 

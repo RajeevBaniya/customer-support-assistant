@@ -8,6 +8,7 @@ from src.schemas.evaluationSchemas import (
     MAX_RETRIEVED_CONTEXT_CHARS,
     MAX_WORKFLOW_TRACE_SUMMARY_CHARS,
 )
+from src.shared.textHelpers import split_sentences
 from src.workflows.state.chat_rag_state import ChatRagState
 
 _TOKEN = re.compile(r"[a-z0-9]{2,}")
@@ -28,11 +29,7 @@ def jaccard(a: set[str], b: set[str]) -> float:
 
 
 def sentence_chunks(text: str) -> list[str]:
-    raw = text.strip()
-    if not raw:
-        return []
-    parts = re.split(r"(?<=[.!?])\s+", raw)
-    return [p.strip() for p in parts if p.strip()]
+    return split_sentences(text)
 
 
 def best_sentence_overlap(sentence: str, context: str) -> float:

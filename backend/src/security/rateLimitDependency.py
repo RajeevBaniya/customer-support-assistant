@@ -1,4 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 import redis.asyncio as redis_async
 from fastapi import Depends, Request
@@ -26,13 +27,15 @@ def _get_redis_client(request: Request) -> redis_async.Redis:
             status_code=503,
             details={"reason": "redis_not_initialized"},
         )
+    if not isinstance(client, redis_async.Redis):
+        raise TypeError("redis_client must be redis_async.Redis")
     return client
 
 
 def rate_limited(
     endpoint_key: str,
     limit_getter: Callable[[AppEnvironment], int],
-) -> Callable:
+) -> Callable[..., Coroutine[Any, Any, None]]:
     async def _dependency(
         request: Request,
         user: User = Depends(get_application_user),

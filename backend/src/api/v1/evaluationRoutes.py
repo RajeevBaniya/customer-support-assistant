@@ -75,7 +75,10 @@ async def get_evaluation_run(
     return JSONResponse(content=out)
 
 
-@evaluation_router.post("/benchmark/{dataset_id}/run", dependencies=[Depends(_rate_limit_benchmark_run)])
+@evaluation_router.post(
+    "/benchmark/{dataset_id}/run",
+    dependencies=[Depends(_rate_limit_benchmark_run)],
+)
 async def post_benchmark_run(
     request: Request,
     dataset_id: UUID,
