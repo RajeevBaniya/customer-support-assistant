@@ -70,12 +70,12 @@ class RateLimitException(BaseApplicationException):
         retry_after: int = 60,
         details: dict[str, Any] | None = None,
     ) -> None:
-        merged = {"retry_after_seconds": retry_after, **(details or {})}
+        error_details = {"retry_after_seconds": retry_after, **(details or {})}
         super().__init__(
             message,
             error_code="rate_limit_exceeded",
             status_code=429,
-            details=merged,
+            details=error_details,
         )
         self.retry_after = retry_after
 

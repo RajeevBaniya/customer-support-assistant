@@ -5,8 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.documents.canonical.document_block import DocumentBlock
-from src.documents.canonical.document_metadata import DocumentMetadata
+from src.documents.canonical.documentBlock import DocumentBlock
+from src.documents.canonical.documentMetadata import DocumentMetadata
 
 
 class CanonicalDocument(BaseModel):
@@ -60,7 +60,7 @@ class CanonicalDocument(BaseModel):
             if block.source_order < 0:
                 raise ValueError(f"Negative source_order: {block.source_order}")
 
-            from src.documents.canonical.block_type import BlockType
+            from src.documents.canonical import BlockType
 
             if block.type != BlockType.UNKNOWN and not block.content.strip():
                 raise ValueError(f"Empty content not allowed for block type: {block.type}")

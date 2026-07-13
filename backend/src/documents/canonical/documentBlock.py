@@ -2,8 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.documents.canonical.block_metadata import BlockMetadata
-from src.documents.canonical.block_type import BlockType
+from src.documents.canonical.blockMetadata import BlockMetadata
+from src.documents.canonical.blockType import BlockType
 
 
 class DocumentBlock(BaseModel):
