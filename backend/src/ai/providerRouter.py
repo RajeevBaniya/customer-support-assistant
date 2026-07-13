@@ -11,12 +11,6 @@ from src.observability.metrics.recorders import record_generation_usage
 from src.shared.customExceptions import BaseApplicationException
 
 
-def _other_provider(name: str) -> str:
-    if name == "groq":
-        return "gemini"
-    return "groq"
-
-
 def _record_usage(
     *,
     organization_id: UUID | None,
@@ -43,17 +37,32 @@ async def complete_with_fallback(
     user: str,
     organization_id: UUID | None = None,
     route_type: str = "rag",
+    is_evaluation: bool = False,
 ) -> tuple[str, str]:
     timeout = float(settings.llm_timeout_seconds)
     primary = settings.active_llm_provider.strip().lower()
-    order = [primary, _other_provider(primary)]
+    fallback = settings.fallback_llm_provider.strip().lower()
+
+    if is_evaluation:
+        primary_key = settings.evaluation_api_key
+        fallback_key = settings.evaluation_api_key
+    else:
+        primary_key = settings.generation_api_key
+        fallback_key = settings.fallback_generation_api_key
+
+    order = [(primary, primary_key), (fallback, fallback_key)]
     last_reason = "no_provider_attempted"
     prompt_text = f"{system}\n{user}"
-    for name in order:
+
+    for name, key in order:
+        if not key or not str(key).strip():
+            last_reason = f"key_missing_for_{name}"
+            continue
         try:
             if name == "groq":
                 text, usage = await groq_chat(
                     settings,
+                    api_key=key,
                     system=system,
                     user=user,
                     timeout_seconds=timeout,
@@ -70,6 +79,7 @@ async def complete_with_fallback(
             if name == "gemini":
                 text, usage = await gemini_chat(
                     settings,
+                    api_key=key,
                     system=system,
                     user=user,
                     timeout_seconds=timeout,
@@ -86,6 +96,7 @@ async def complete_with_fallback(
         except Exception as exc:
             last_reason = str(exc)
             continue
+
     raise BaseApplicationException(
         "No LLM provider could complete the request",
         error_code="rag_provider_unavailable",
@@ -101,22 +112,43 @@ async def stream_chat_with_fallback(
     user: str,
     organization_id: UUID | None = None,
     route_type: str = "chat_stream",
+    is_evaluation: bool = False,
 ) -> AsyncIterator[tuple[str, str]]:
     timeout = float(settings.llm_timeout_seconds)
     primary = settings.active_llm_provider.strip().lower()
-    order = [primary, _other_provider(primary)]
+    fallback = settings.fallback_llm_provider.strip().lower()
+
+    if is_evaluation:
+        primary_key = settings.evaluation_api_key
+        fallback_key = settings.evaluation_api_key
+    else:
+        primary_key = settings.generation_api_key
+        fallback_key = settings.fallback_generation_api_key
+
+    order = [(primary, primary_key), (fallback, fallback_key)]
     last_reason = "no_provider_attempted"
     emitted = False
     prompt_text = f"{system}\n{user}"
     parts: list[str] = []
     provider_used = "none"
-    for name in order:
+
+    for name, key in order:
+        if not key or not str(key).strip():
+            last_reason = f"key_missing_for_{name}"
+            continue
         try:
             if name == "groq":
-                gen = groq_chat_stream(settings, system=system, user=user, timeout_seconds=timeout)
+                gen = groq_chat_stream(
+                    settings,
+                    api_key=key,
+                    system=system,
+                    user=user,
+                    timeout_seconds=timeout,
+                )
             elif name == "gemini":
                 gen = gemini_chat_stream(
                     settings,
+                    api_key=key,
                     system=system,
                     user=user,
                     timeout_seconds=timeout,
@@ -143,6 +175,7 @@ async def stream_chat_with_fallback(
             if emitted:
                 raise
             continue
+
     raise BaseApplicationException(
         "No LLM provider could stream the request",
         error_code="rag_provider_unavailable",

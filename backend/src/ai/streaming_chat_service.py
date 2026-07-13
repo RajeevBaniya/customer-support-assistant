@@ -1,27 +1,35 @@
+"""StreamingChatService delivering real-time tokens via server-sent events."""
+
+from __future__ import annotations
+
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from uuid import UUID, uuid4
 
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.chatService import ChatService
-from src.ai.providerRouter import stream_chat_with_fallback
 from src.ai.ragService import RagService
-from src.conversations.conversationRepository import ConversationRepository
-from src.conversations.messageRepository import MessageRepository
 from src.core.appEnvironment import AppEnvironment
-from src.models.messageModel import Message
 from src.models.userModel import User
-from src.observability.metrics.recorders import record_chat_request, record_chat_stream_duration
+from src.orchestration.workflowOrchestrator import WorkflowOrchestrator
+from src.orchestration.workflowRequest import WorkflowRequest
 from src.realtime.generation_registry import GenerationRegistry
 from src.realtime.stream_state import format_sse_event
+from src.runtimeTools.conversationTool import (
+    AddMessageRequest,
+    ConversationTool,
+    LoadConversationRequest,
+)
+from src.runtimeTools.metricsTool import MetricsTool, RecordChatRequest
 from src.schemas.chatSchemas import ChatMessageRequest, ChatStreamDoneData
-from src.schemas.retrievalSchemas import RetrievalSearchRequest
 from src.shared.customExceptions import BaseApplicationException, ResourceNotFoundException
 
 
 class StreamingChatService:
+    """Service handling streaming chat sessions and cancellation registry."""
+
     def __init__(
         self,
         session: AsyncSession,
@@ -31,10 +39,10 @@ class StreamingChatService:
         self._session = session
         self._settings = settings
         self._redis = redis_client
-        self._chat = ChatService.from_request(session, settings)
-        self._rag = RagService.from_request(session, settings)
-        self._conversations = ConversationRepository(session)
-        self._messages = MessageRepository(session)
+        self._chat = ChatService(session, settings)
+        self._rag = RagService(session, settings)
+        self._conversation_tool = ConversationTool(session, settings)
+        self._metrics_tool = MetricsTool(session, settings)
 
     @classmethod
     def from_request(
@@ -42,7 +50,8 @@ class StreamingChatService:
         session: AsyncSession,
         settings: AppEnvironment,
         redis_client: Redis | None,
-    ) -> "StreamingChatService":
+    ) -> StreamingChatService:
+        """Factory constructor."""
         if redis_client is None:
             raise BaseApplicationException(
                 "Redis is required for streaming chat",
@@ -53,15 +62,19 @@ class StreamingChatService:
         return cls(session, settings, redis_client)
 
     async def aclose(self) -> None:
+        """Close resources if needed."""
         pass
 
     async def cancel_generations(self, *, actor: User, conversation_id: UUID) -> int:
-        conv = await self._conversations.get_for_user(
-            conversation_id,
-            organization_id=actor.organization_id,
-            user_id=actor.id,
+        """Cancel all running generations for a conversation."""
+        conversation = await self._conversation_tool.load_conversation(
+            LoadConversationRequest(
+                conversation_id=conversation_id,
+                organization_id=actor.organization_id,
+                user_id=actor.id,
+            )
         )
-        if conv is None:
+        if conversation is None:
             raise ResourceNotFoundException(
                 "Conversation not found",
                 details={"conversation_id": str(conversation_id)},
@@ -77,109 +90,69 @@ class StreamingChatService:
         *,
         actor: User,
         body: ChatMessageRequest,
-    ) -> AsyncIterator[str]:
-        generation_id = uuid4()
-        record_chat_request(mode="stream")
-        stream_t0 = time.monotonic()
+    ) -> AsyncGenerator[str, None]:
+        """Generator delivering real-time tokens, citations, and status messages."""
+        self._metrics_tool.record_chat(RecordChatRequest(mode="stream"))
+        stream_start_time = time.monotonic()
         registry = GenerationRegistry(self._redis, self._settings)
         deadline = time.monotonic() + float(self._settings.chat_stream_max_duration_seconds)
+        generation_id = uuid4()
 
         try:
-            conv, user_row, memory_text = await self._chat.attach_user_message(
+            conversation, user_message, _ = await self._chat.attach_user_message(
                 actor=actor,
-                body=body,
+                chat_request=body,
             )
-        except BaseApplicationException as exc:
-            yield format_sse_event(
-                {"type": "error", "data": {"code": exc.error_code, "message": exc.message}}
-            )
-            return
-        except Exception as exc:
+        except BaseApplicationException as exception:
             yield format_sse_event(
                 {
                     "type": "error",
-                    "data": {"code": "stream_attach_failed", "message": str(exc)},
+                    "data": {
+                        "code": exception.error_code,
+                        "message": exception.message,
+                    },
+                }
+            )
+            return
+        except Exception as exception:
+            yield format_sse_event(
+                {
+                    "type": "error",
+                    "data": {"code": "stream_attach_failed", "message": str(exception)},
                 }
             )
             return
 
         await registry.register(
             organization_id=actor.organization_id,
-            conversation_id=conv.id,
+            conversation_id=conversation.id,
             generation_id=generation_id,
             user_id=actor.id,
         )
         try:
-            try:
-                prep = await self._rag.prepare_stream_prompt(
-                    organization_id=actor.organization_id,
-                    body=RetrievalSearchRequest(
-                        query=body.message.strip(),
-                        top_k=body.top_k,
-                        document_ids=body.document_ids,
-                    ),
-                    prior_turns_text=memory_text,
-                )
-            except BaseApplicationException as exc:
-                yield format_sse_event(
-                    {
-                        "type": "error",
-                        "data": {"code": exc.error_code, "message": exc.message},
-                    }
-                )
-                return
-            except Exception as exc:
-                yield format_sse_event(
-                    {
-                        "type": "error",
-                        "data": {"code": "stream_prepare_failed", "message": str(exc)},
-                    }
-                )
-                return
-
-            if not prep.use_llm:
-                text = prep.fixed_reply or ""
-                if text:
-                    yield format_sse_event({"type": "token", "data": {"text": text}})
-                assistant = Message(
-                    conversation_id=conv.id,
-                    role="assistant",
-                    content=text,
-                    citations=[],
-                )
-                await self._messages.add(assistant)
-                await self._conversations.touch_updated_at(conv.id)
-                yield format_sse_event(
-                    {
-                        "type": "citations",
-                        "data": {"items": []},
-                    }
-                )
-                done = ChatStreamDoneData(
-                    generation_id=generation_id,
-                    conversation_id=conv.id,
-                    user_message_id=user_row.id,
-                    assistant_message_id=assistant.id,
-                    provider="none",
-                    retrieval_top_k=prep.top_k,
-                )
-                yield format_sse_event({"type": "done", "data": done.model_dump(mode="json")})
-                return
-
+            orchestrator = WorkflowOrchestrator(self._session, self._settings)
+            wf_req = WorkflowRequest(
+                user_message=body.message.strip(),
+                conversation_id=conversation.id,
+                organization_id=actor.organization_id,
+                user_id=actor.id,
+                selected_document_ids=body.document_ids,
+                stream=True,
+            )
             parts: list[str] = []
             provider_used = "none"
+            final_citations = []
+
             try:
-                async for prov, delta in stream_chat_with_fallback(
-                    self._settings,
-                    system=prep.system,
-                    user=prep.user,
-                    organization_id=actor.organization_id,
-                    route_type="chat_stream",
-                ):
-                    provider_used = prov
+                async for res in orchestrator.stream_execute(wf_req):
+                    provider_used = res.provider_used
+                    token_delta = res.assistant_text
+                    if res.citations:
+                        final_citations = res.citations
+
                     if await registry.is_cancelled(
                         organization_id=actor.organization_id,
-                        conversation_id=conv.id,
+                        conversation_id=conversation.id,
                         generation_id=generation_id,
                     ):
                         yield format_sse_event({"type": "cancelled", "data": {}})
@@ -195,64 +168,74 @@ class StreamingChatService:
                             }
                         )
                         return
-                    if delta:
-                        parts.append(delta)
-                        yield format_sse_event({"type": "token", "data": {"text": delta}})
-            except BaseApplicationException as exc:
-                yield format_sse_event(
-                    {"type": "error", "data": {"code": exc.error_code, "message": exc.message}}
-                )
-                return
-            except Exception as exc:
+                    if token_delta:
+                        parts.append(token_delta)
+                        yield format_sse_event({"type": "token", "data": {"text": token_delta}})
+            except BaseApplicationException as exception:
                 yield format_sse_event(
                     {
                         "type": "error",
-                        "data": {"code": "stream_provider_failed", "message": str(exc)},
+                        "data": {
+                            "code": exception.error_code,
+                            "message": exception.message,
+                        },
+                    }
+                )
+                return
+            except Exception as exception:
+                yield format_sse_event(
+                    {
+                        "type": "error",
+                        "data": {"code": "stream_provider_failed", "message": str(exception)},
                     }
                 )
                 return
 
             if await registry.is_cancelled(
                 organization_id=actor.organization_id,
-                conversation_id=conv.id,
+                conversation_id=conversation.id,
                 generation_id=generation_id,
             ):
                 yield format_sse_event({"type": "cancelled", "data": {}})
                 return
 
             full_text = "".join(parts)
-            cite_json = [c.model_dump(mode="json") for c in prep.citations]
-            assistant = Message(
-                conversation_id=conv.id,
-                role="assistant",
-                content=full_text,
-                citations=cite_json,
+            citations_json = [
+                citation.model_dump(mode="json")
+                for citation in final_citations
+            ]
+            assistant_message = await self._conversation_tool.add_message(
+                AddMessageRequest(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=full_text,
+                    citations=citations_json,
+                )
             )
-            await self._messages.add(assistant)
-            await self._conversations.touch_updated_at(conv.id)
+            await self._conversation_tool.touch_conversation(conversation.id)
             yield format_sse_event(
                 {
                     "type": "citations",
-                    "data": {"items": [c.model_dump(mode="json") for c in prep.citations]},
+                    "data": {"items": citations_json},
                 }
             )
-            done = ChatStreamDoneData(
+            done_data = ChatStreamDoneData(
                 generation_id=generation_id,
-                conversation_id=conv.id,
-                user_message_id=user_row.id,
-                assistant_message_id=assistant.id,
+                conversation_id=conversation.id,
+                user_message_id=user_message.id,
+                assistant_message_id=assistant_message.id,
                 provider=provider_used,
-                retrieval_top_k=prep.top_k,
+                retrieval_top_k=body.top_k or self._settings.retrieval_default_top_k,
             )
-            yield format_sse_event({"type": "done", "data": done.model_dump(mode="json")})
-        except Exception as exc:
+            yield format_sse_event({"type": "done", "data": done_data.model_dump(mode="json")})
+        except Exception as exception:
             yield format_sse_event(
-                {"type": "error", "data": {"code": "stream_unexpected", "message": str(exc)}}
+                {"type": "error", "data": {"code": "stream_unexpected", "message": str(exception)}}
             )
         finally:
-            record_chat_stream_duration(time.monotonic() - stream_t0)
+            self._metrics_tool.record_chat_stream_duration(time.monotonic() - stream_start_time)
             await registry.drop_generation(
                 organization_id=actor.organization_id,
-                conversation_id=conv.id,
+                conversation_id=conversation.id,
                 generation_id=generation_id,
             )

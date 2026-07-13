@@ -1,18 +1,29 @@
+from __future__ import annotations
+
 from typing import cast
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.ragService import RagService
-from src.conversations.conversationRepository import ConversationRepository
 from src.conversations.conversationTitle import conversation_title_from_first_message
-from src.conversations.messageRepository import MessageRepository
 from src.conversations.priorTurnsFormat import TurnLine, prior_turns_block
 from src.core.appEnvironment import AppEnvironment
 from src.models.conversationModel import Conversation
 from src.models.messageModel import Message
 from src.models.userModel import User
-from src.observability.metrics.recorders import record_chat_request
+from src.orchestration.workflowOrchestrator import WorkflowOrchestrator
+from src.orchestration.workflowRequest import WorkflowRequest
+from src.planning.executionPlan import ExecutionPlan
+from src.runtimeTools.conversationTool import (
+    AddMessageRequest,
+    ConversationTool,
+    CreateConversationRequest,
+    ListConversationsRequest,
+    ListMessagesRequest,
+    ListRecentMessagesRequest,
+    LoadConversationRequest,
+)
+from src.runtimeTools.metricsTool import MetricsTool, RecordChatRequest
 from src.schemas.chatSchemas import (
     ChatMessageRequest,
     ChatMessageResponse,
@@ -21,100 +32,131 @@ from src.schemas.chatSchemas import (
 )
 from src.schemas.conversationSchemas import ConversationResponse
 from src.schemas.messageSchemas import MessageResponse, MessageRole, citations_from_stored
-from src.schemas.retrievalSchemas import RetrievalSearchRequest
 from src.shared.customExceptions import ResourceNotFoundException
 
 
 class ChatService:
+    """Service handling chat message interactions using conversation and metrics tools."""
+
     def __init__(self, session: AsyncSession, settings: AppEnvironment) -> None:
         self._session = session
         self._settings = settings
-        self._conversations = ConversationRepository(session)
-        self._messages = MessageRepository(session)
+        self._conversation_tool = ConversationTool(session, settings)
+        self._metrics_tool = MetricsTool(session, settings)
 
     @classmethod
-    def from_request(cls, session: AsyncSession, settings: AppEnvironment) -> "ChatService":
+    def from_request(cls, session: AsyncSession, settings: AppEnvironment) -> ChatService:
+        """Factory constructor."""
         return cls(session, settings)
 
     async def attach_user_message(
         self,
         *,
         actor: User,
-        body: ChatMessageRequest,
+        chat_request: ChatMessageRequest,
+        plan: ExecutionPlan | None = None,
     ) -> tuple[Conversation, Message, str | None]:
-        if body.conversation_id is not None:
-            conv = await self._conversations.get_for_user(
-                body.conversation_id,
-                organization_id=actor.organization_id,
-                user_id=actor.id,
+        """Save an incoming user message, attaching to new or existing conversation."""
+        if chat_request.conversation_id is not None:
+            conversation = await self._conversation_tool.load_conversation(
+                LoadConversationRequest(
+                    conversation_id=chat_request.conversation_id,
+                    organization_id=actor.organization_id,
+                    user_id=actor.id,
+                )
             )
-            if conv is None:
+            if conversation is None:
                 raise ResourceNotFoundException(
                     "Conversation not found",
-                    details={"conversation_id": str(body.conversation_id)},
+                    details={"conversation_id": str(chat_request.conversation_id)},
                 )
         else:
-            conv = Conversation(
-                organization_id=actor.organization_id,
-                user_id=actor.id,
-                title=conversation_title_from_first_message(body.message),
+            conversation = await self._conversation_tool.create_conversation(
+                CreateConversationRequest(
+                    organization_id=actor.organization_id,
+                    user_id=actor.id,
+                    title=conversation_title_from_first_message(chat_request.message),
+                )
             )
-            await self._conversations.add(conv)
 
-        prior = await self._messages.list_recent_desc(
-            conv.id,
-            limit=self._settings.chat_history_max_messages,
+        recent_messages = await self._conversation_tool.list_recent_messages(
+            ListRecentMessagesRequest(
+                conversation_id=conversation.id,
+                limit=self._settings.chat_history_max_messages,
+            )
         )
-        memory = prior_turns_block(
-            [TurnLine(m.role, m.content) for m in prior],
+        max_tokens = (
+            plan.budget.max_history_tokens
+            if plan
+            else self._settings.chat_memory_max_tokens
+        )
+        history_block = prior_turns_block(
+            [TurnLine(message.role, message.content) for message in recent_messages],
             max_chars=self._settings.chat_history_max_chars,
-            max_tokens=self._settings.chat_memory_max_tokens,
+            max_tokens=max_tokens,
         )
-        memory_text = memory.strip() or None
+        memory_text = history_block.strip() or None
 
-        user_row = Message(
-            conversation_id=conv.id,
-            role="user",
-            content=body.message.strip(),
-            citations=None,
+        user_message = await self._conversation_tool.add_message(
+            AddMessageRequest(
+                conversation_id=conversation.id,
+                role="user",
+                content=chat_request.message.strip(),
+                citations=None,
+            )
         )
-        await self._messages.add(user_row)
-        return conv, user_row, memory_text
+        return conversation, user_message, memory_text
 
-    async def post_message(self, *, actor: User, body: ChatMessageRequest) -> ChatMessageResponse:
-        record_chat_request(mode="message")
-        conv, user_row, memory_text = await self.attach_user_message(actor=actor, body=body)
-
-        rag = RagService.from_request(self._session, self._settings)
-        retrieval_body = RetrievalSearchRequest(
-            query=body.message.strip(),
-            top_k=body.top_k,
-            document_ids=body.document_ids,
+    async def post_message(
+        self,
+        *,
+        actor: User,
+        body: ChatMessageRequest,
+    ) -> ChatMessageResponse:
+        """Process user message by running RAG ask and recording generation results."""
+        self._metrics_tool.record_chat(RecordChatRequest(mode="message"))
+        conversation, user_message, _ = await self.attach_user_message(
+            actor=actor, chat_request=body
         )
-        out = await rag.ask(
+
+        orchestrator = WorkflowOrchestrator(self._session, self._settings)
+        wf_req = WorkflowRequest(
+            user_message=body.message.strip(),
+            conversation_id=conversation.id,
             organization_id=actor.organization_id,
-            body=retrieval_body,
-            prior_turns_text=memory_text,
+            user_id=actor.id,
+            selected_document_ids=body.document_ids,
+            stream=False,
         )
+        wf_res = await orchestrator.execute(wf_req)
+        response_result = wf_res.response_result
 
-        cite_json = [c.model_dump(mode="json") for c in out.citations]
-        assistant_row = Message(
-            conversation_id=conv.id,
-            role="assistant",
-            content=out.answer,
-            citations=cite_json,
+        citations_json = [
+            citation.model_dump(mode="json")
+            for citation in response_result.citations
+        ]
+        assistant_message = await self._conversation_tool.add_message(
+            AddMessageRequest(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=response_result.assistant_text,
+                citations=citations_json,
+            )
         )
-        await self._messages.add(assistant_row)
-        await self._conversations.touch_updated_at(conv.id)
+        await self._conversation_tool.touch_conversation(conversation.id)
+
+        top_k_used = 0
+        if wf_res.retrieval_result:
+            top_k_used = wf_res.retrieval_result.retrieval_metrics.top_k_used
 
         return ChatMessageResponse(
-            conversation_id=conv.id,
-            user_message_id=user_row.id,
-            assistant_message_id=assistant_row.id,
-            answer=out.answer,
-            citations=out.citations,
-            provider=out.provider,
-            retrieval_top_k=out.retrieval_top_k,
+            conversation_id=conversation.id,
+            user_message_id=user_message.id,
+            assistant_message_id=assistant_message.id,
+            answer=response_result.assistant_text,
+            citations=response_result.citations,
+            provider=response_result.provider_used,
+            retrieval_top_k=top_k_used,
         )
 
     async def list_conversations(
@@ -124,31 +166,36 @@ class ChatService:
         limit: int,
         offset: int,
     ) -> ConversationListResponse:
-        total = await self._conversations.count_for_user(
+        """Return paginated conversations list for current user."""
+        total = await self._conversation_tool.count_conversations(
             organization_id=actor.organization_id,
             user_id=actor.id,
         )
-        rows = await self._conversations.list_for_user(
-            organization_id=actor.organization_id,
-            user_id=actor.id,
-            limit=limit,
-            offset=offset,
-        )
-        items = [ConversationResponse.model_validate(r) for r in rows]
-        return ConversationListResponse(items=items, total=total, limit=limit, offset=offset)
-
-    async def get_conversation(self, *, actor: User, conversation_id: UUID) -> ConversationResponse:
-        row = await self._conversations.get_for_user(
-            conversation_id,
-            organization_id=actor.organization_id,
-            user_id=actor.id,
-        )
-        if row is None:
-            raise ResourceNotFoundException(
-                "Conversation not found",
-                details={"conversation_id": str(conversation_id)},
+        conversations = await self._conversation_tool.list_conversations(
+            ListConversationsRequest(
+                organization_id=actor.organization_id,
+                user_id=actor.id,
+                limit=limit,
+                offset=offset,
             )
-        return ConversationResponse.model_validate(row)
+        )
+        response_items = [
+            ConversationResponse.model_validate(conversation)
+            for conversation in conversations
+        ]
+        return ConversationListResponse(
+            items=response_items, total=total, limit=limit, offset=offset
+        )
+
+    async def get_conversation(
+        self,
+        *,
+        actor: User,
+        conversation_id: UUID,
+    ) -> ConversationResponse:
+        """Retrieve a single conversation details."""
+        conversation = await self._load_and_verify_conversation(conversation_id, actor)
+        return ConversationResponse.model_validate(conversation)
 
     async def list_messages(
         self,
@@ -158,26 +205,40 @@ class ChatService:
         limit: int,
         offset: int,
     ) -> MessageListResponse:
-        conv = await self._conversations.get_for_user(
-            conversation_id,
-            organization_id=actor.organization_id,
-            user_id=actor.id,
+        """Load message turns paginated in ascending order."""
+        conversation = await self._load_and_verify_conversation(conversation_id, actor)
+        total = await self._conversation_tool.count_messages(conversation.id)
+        messages = await self._conversation_tool.list_messages(
+            ListMessagesRequest(conversation_id=conversation.id, limit=limit, offset=offset)
         )
-        if conv is None:
+        response_items = [
+            MessageResponse(
+                id=message.id,
+                role=cast(MessageRole, message.role),
+                content=message.content,
+                citations=citations_from_stored(message.citations),
+                created_at=message.created_at,
+            )
+            for message in messages
+        ]
+        return MessageListResponse(items=response_items, total=total, limit=limit, offset=offset)
+
+    async def _load_and_verify_conversation(
+        self,
+        conversation_id: UUID,
+        actor: User,
+    ) -> Conversation:
+        """Retrieve conversation by ID and organization, raising exception if not found."""
+        conversation = await self._conversation_tool.load_conversation(
+            LoadConversationRequest(
+                conversation_id=conversation_id,
+                organization_id=actor.organization_id,
+                user_id=actor.id,
+            )
+        )
+        if conversation is None:
             raise ResourceNotFoundException(
                 "Conversation not found",
                 details={"conversation_id": str(conversation_id)},
             )
-        total = await self._messages.count_for_conversation(conversation_id)
-        rows = await self._messages.list_page_asc(conversation_id, limit=limit, offset=offset)
-        items = [
-            MessageResponse(
-                id=r.id,
-                role=cast(MessageRole, r.role),
-                content=r.content,
-                citations=citations_from_stored(r.citations),
-                created_at=r.created_at,
-            )
-            for r in rows
-        ]
-        return MessageListResponse(items=items, total=total, limit=limit, offset=offset)
+        return conversation

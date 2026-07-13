@@ -26,11 +26,12 @@ def _parse_gemini_usage(data: dict[str, Any]) -> GenerationUsage | None:
 async def gemini_chat(
     settings: AppEnvironment,
     *,
+    api_key: str,
     system: str,
     user: str,
     timeout_seconds: float,
 ) -> tuple[str, GenerationUsage | None]:
-    key = settings.gemini_api_key
+    key = api_key
     if not key or not str(key).strip():
         raise RuntimeError("gemini_key_missing")
     model = quote(settings.gemini_model.strip(), safe=".-_")
@@ -78,11 +79,12 @@ def _gemini_stream_text_from_obj(obj: dict[str, Any]) -> str | None:
 async def gemini_chat_stream(
     settings: AppEnvironment,
     *,
+    api_key: str,
     system: str,
     user: str,
     timeout_seconds: float,
 ) -> AsyncIterator[str]:
-    key = settings.gemini_api_key
+    key = api_key
     if not key or not str(key).strip():
         raise RuntimeError("gemini_key_missing")
     model = quote(settings.gemini_model.strip(), safe=".-_")

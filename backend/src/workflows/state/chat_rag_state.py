@@ -26,6 +26,8 @@ class ChatRagState(TypedDict, total=False):
     retrieval_top_k: int
     answer: str
     provider: str
+    context_package: dict[str, Any]
+    generation_result: dict[str, Any]
 
 
 def trace_event(row: Mapping[str, Any]) -> list[dict[str, Any]]:

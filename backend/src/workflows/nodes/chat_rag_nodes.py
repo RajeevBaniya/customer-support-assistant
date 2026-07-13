@@ -4,185 +4,267 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from src.ai.citationBuilder import citations_from_chunks
-from src.ai.contextBuilder import build_context_text
-from src.ai.promptBuilder import build_prompt_pair
-from src.ai.providerRouter import complete_with_fallback
+from src.contextAssembly.contextAssemblyEngine import ContextAssemblyEngine
+from src.contextAssembly.contextPackage import ContextPackage
 from src.core.appEnvironment import AppEnvironment
-from src.retrieval.retrievalService import RetrievalService
+from src.generation.generationEngine import GenerationEngine
+from src.generation.generationModels import GenerationRequest
+from src.planning.executionPlan import ExecutionPlan
+from src.retrieval.retrievalEngine import RetrievalEngine
+from src.retrieval.retrievalModels import RetrievalRequest
+from src.runtimeContext.runtimeContext import RuntimeContext
+from src.runtimeTools.retrieveTool import RetrieveTool
 from src.schemas.retrievalSchemas import (
-    RetrievalChunkItem,
     RetrievalSearchRequest,
     RetrievalSearchResponse,
 )
-from src.workflows.pipeline import chat_rag_orchestration as orch
+from src.workflows.pipeline import chat_rag_orchestration as orchestration
 from src.workflows.state.chat_rag_state import ChatRagState, scratch_list, trace_event
 
 
-def _cfg(config: RunnableConfig) -> dict[str, Any]:
-    raw = config.get("configurable") or {}
-    if not isinstance(raw, dict):
+def get_configurable(config: RunnableConfig) -> dict[str, Any]:
+    """Retrieve configurable parameters dictionary from execution context."""
+    configurable = config.get("configurable") or {}
+    if not isinstance(configurable, dict):
         raise TypeError("configurable must be a dict")
-    return raw
+    return configurable
 
 
-def _settings(config: RunnableConfig) -> AppEnvironment:
-    s = _cfg(config).get("settings")
-    if not isinstance(s, AppEnvironment):
+def get_app_settings(config: RunnableConfig) -> AppEnvironment:
+    """Retrieve AppEnvironment settings from execution context."""
+    settings = get_configurable(config).get("settings")
+    if not isinstance(settings, AppEnvironment):
         raise TypeError("settings must be AppEnvironment")
-    return s
+    return settings
 
 
-def _retrieval(config: RunnableConfig) -> RetrievalService:
-    r = _cfg(config).get("retrieval")
-    if not isinstance(r, RetrievalService):
-        raise TypeError("retrieval must be RetrievalService")
-    return r
+def get_execution_plan(config: RunnableConfig) -> ExecutionPlan:
+    """Retrieve ExecutionPlan from execution context."""
+    plan = get_configurable(config).get("plan")
+    if not isinstance(plan, ExecutionPlan):
+        raise TypeError("plan must be ExecutionPlan")
+    return plan
+
+
+def get_runtime_context(config: RunnableConfig) -> RuntimeContext:
+    """Retrieve RuntimeContext from execution context."""
+    context = get_configurable(config).get("context")
+    if not isinstance(context, RuntimeContext):
+        raise TypeError("context must be RuntimeContext")
+    return context
+
+
+def get_retrieval_tool(config: RunnableConfig) -> RetrieveTool:
+    """Retrieve RetrieveTool instance from execution context."""
+    retrieval_tool = get_configurable(config).get("retrieve_tool")
+    if not isinstance(retrieval_tool, RetrieveTool):
+        raise TypeError("retrieve_tool must be RetrieveTool")
+    return retrieval_tool
 
 
 async def prepare_query_node(state: ChatRagState, config: RunnableConfig) -> dict[str, Any]:
+    """Prepare search query using history context."""
     del config
-    body = RetrievalSearchRequest.model_validate(state["body"])
-    prior = state.get("prior_turns_text")
-    blended = orch.blended_retrieval_request(body, prior)
+    search_request = RetrievalSearchRequest.model_validate(state["body"])
+    prior_turns_text = state.get("prior_turns_text")
+    blended_request = orchestration.blended_retrieval_request(search_request, prior_turns_text)
     return {
-        "retrieval_body": blended.model_dump(mode="json"),
+        "retrieval_body": blended_request.model_dump(mode="json"),
         "workflow_trace": trace_event(
             {
                 "stage": "prepare_query",
-                "blended_query_len": len(blended.query),
-                "top_k_request": body.top_k,
+                "blended_query_len": len(blended_request.query),
+                "top_k_request": search_request.top_k,
             }
         ),
     }
 
 
 async def retrieval_node(state: ChatRagState, config: RunnableConfig) -> dict[str, Any]:
-    scratch = scratch_list(_cfg(config))
+    """Run semantic document chunk search using RetrievalEngine."""
+    trace_scratch = scratch_list(get_configurable(config))
+    settings = get_app_settings(config)
+    plan = get_execution_plan(config)
+    context = get_runtime_context(config)
+    search_request = RetrievalSearchRequest.model_validate(state["retrieval_body"])
+
     try:
-        org = orch.parse_organization_id(state["organization_id"])
-        body = RetrievalSearchRequest.model_validate(state["retrieval_body"])
-        resp = await _retrieval(config).search(organization_id=org, body=body)
+        tool = get_retrieval_tool(config)
+        observability = get_configurable(config).get("observability")
+        engine = RetrievalEngine(tool, settings, observability=observability)
+        org_id = orchestration.parse_organization_id(state["organization_id"])
+
+        request = RetrievalRequest(
+            execution_plan=plan,
+            runtime_context=context,
+            organization_id=org_id,
+            query=search_request.query,
+            top_k=search_request.top_k,
+            retrieval_mode=plan.retrieval.retrieval_mode,
+        )
+
+        result = await engine.retrieve(request)
+
+        search_response = RetrievalSearchResponse(
+            items=result.retrieved_chunks,
+            query=request.query,
+            top_k=result.retrieval_metrics.top_k_used,
+        )
+
         return {
-            "retrieval_response": resp.model_dump(mode="json"),
-            "retrieval_top_k": resp.top_k,
+            "retrieval_response": search_response.model_dump(mode="json"),
+            "retrieval_top_k": search_response.top_k,
             "workflow_trace": trace_event(
                 {
                     "stage": "retrieval",
-                    "top_k": resp.top_k,
-                    "items": len(resp.items),
+                    "top_k": search_response.top_k,
+                    "items": len(search_response.items),
                 }
             ),
         }
-    except Exception as exc:
-        scratch.append({"stage": "retrieval", "error": str(exc), "error_type": type(exc).__name__})
+    except Exception as exception:
+        trace_scratch.append({
+            "stage": "retrieval",
+            "error": str(exception),
+            "error_type": type(exception).__name__,
+        })
         raise
 
 
 def route_after_retrieval(state: ChatRagState) -> str:
-    resp = RetrievalSearchResponse.model_validate(state["retrieval_response"])
-    if not resp.items:
+    """Route node flow based on whether any search hits were returned."""
+    search_response = RetrievalSearchResponse.model_validate(state["retrieval_response"])
+    if not search_response.items:
         return "insufficient"
     return "context"
 
 
 async def insufficient_context_node(state: ChatRagState, config: RunnableConfig) -> dict[str, Any]:
+    """Prepare fallback properties when search returned no results."""
     del config
-    resp = RetrievalSearchResponse.model_validate(state["retrieval_response"])
-    patch = orch.insufficient_prep(top_k=resp.top_k)
+    search_response = RetrievalSearchResponse.model_validate(state["retrieval_response"])
+    patch = orchestration.insufficient_prep(top_k=search_response.top_k)
     return {
         **patch,
         "workflow_trace": trace_event(
-            {"stage": "insufficient_context", "top_k": resp.top_k, "items": 0}
+            {"stage": "insufficient_context", "top_k": search_response.top_k, "items": 0}
         ),
     }
 
 
 async def context_node(state: ChatRagState, config: RunnableConfig) -> dict[str, Any]:
-    resp = RetrievalSearchResponse.model_validate(state["retrieval_response"])
-    settings = _settings(config)
-    capped = orch.cap_chunk_items(resp.items, max_chunks=settings.rag_max_chunks)
-    ctx = build_context_text(
-        capped,
-        max_chars=settings.rag_max_context_chars,
-        max_tokens=settings.rag_max_context_tokens,
-    )
+    """Run context assembly compiler to build pristine immutable ContextPackage."""
+    search_response = RetrievalSearchResponse.model_validate(state["retrieval_response"])
+    settings = get_app_settings(config)
+    plan = get_execution_plan(config)
+    context = get_runtime_context(config)
+
+    assembly = ContextAssemblyEngine(settings)
+    package = assembly.assemble(context, plan, search_response)
+
     return {
-        "capped_items": [c.model_dump(mode="json") for c in capped],
-        "context_text": ctx.text,
-        "context_truncated": ctx.truncated,
+        "context_package": package.model_dump(mode="json"),
+        "capped_items": [item.model_dump(mode="json") for item in package.retrieved.capped_items],
+        "context_text": package.retrieved.context_text,
+        "context_truncated": package.retrieved.truncated,
         "workflow_trace": trace_event(
             {
                 "stage": "context",
-                "capped_chunks": len(capped),
-                "truncated": ctx.truncated,
+                "capped_chunks": package.retrieved.chunk_count,
+                "truncated": package.retrieved.truncated,
             }
         ),
     }
 
 
 async def citation_node(state: ChatRagState, config: RunnableConfig) -> dict[str, Any]:
+    """Retrieve citation metadata from assembled ContextPackage."""
     del config
-    capped = [RetrievalChunkItem.model_validate(x) for x in state["capped_items"]]
-    cites = citations_from_chunks(capped)
+    package_raw = state.get("context_package")
+    if package_raw:
+        package = ContextPackage.model_validate(package_raw)
+        citations = package.citations.citations
+    else:
+        citations = []
     return {
-        "citations_json": [c.model_dump(mode="json") for c in cites],
-        "workflow_trace": trace_event({"stage": "citation", "citations": len(cites)}),
+        "citations_json": [citation.model_dump(mode="json") for citation in citations],
+        "workflow_trace": trace_event({"stage": "citation", "citations": len(citations)}),
     }
 
 
 async def prompt_node(state: ChatRagState, config: RunnableConfig) -> dict[str, Any]:
+    """Construct final system and user instructions using assembled ContextPackage."""
     del config
-    body = RetrievalSearchRequest.model_validate(state["body"])
-    system, user = build_prompt_pair(
-        user_query=body.query,
-        context_text=state["context_text"],
-        prior_turns_text=state.get("prior_turns_text"),
-    )
+    package_raw = state.get("context_package")
+    if not package_raw:
+        return {
+            "use_llm": True,
+            "fixed_reply": None,
+            "system": "",
+            "user": state.get("body", {}).get("query", ""),
+        }
+    package = ContextPackage.model_validate(package_raw)
+    system_prompt = package.instructions.system_prompt
+    user_prompt = package.instructions.user_prompt
     return {
         "use_llm": True,
         "fixed_reply": None,
-        "system": system,
-        "user": user,
+        "system": system_prompt,
+        "user": user_prompt,
         "workflow_trace": trace_event(
             {
                 "stage": "prompt",
-                "system_chars": len(system),
-                "user_chars": len(user),
+                "system_chars": len(system_prompt),
+                "user_chars": len(user_prompt),
             }
         ),
     }
 
 
 def route_stream_or_generate(state: ChatRagState) -> str:
+    """Route flow node based on streaming preference choice."""
     return "stop" if state.get("stream_mode") else "generate"
 
 
 async def generation_node(state: ChatRagState, config: RunnableConfig) -> dict[str, Any]:
-    settings = _settings(config)
-    scratch = scratch_list(_cfg(config))
+    """Execute LLM text generation or emit fixed reply fallback."""
+    settings = get_app_settings(config)
+    trace_scratch = scratch_list(get_configurable(config))
     try:
         if not state.get("use_llm"):
-            text = str(state.get("fixed_reply") or "")
+            reply_text = str(state.get("fixed_reply") or "")
             return {
-                "answer": text,
+                "answer": reply_text,
                 "provider": "none",
                 "workflow_trace": trace_event({"stage": "generation", "mode": "fixed"}),
             }
-        answer, provider = await complete_with_fallback(
-            settings,
-            system=state["system"],
-            user=state["user"],
-            organization_id=orch.parse_organization_id(state["organization_id"]),
-            route_type="rag",
+        is_evaluation = bool(get_configurable(config).get("is_evaluation", False))
+        package_raw = state["context_package"]
+        package = ContextPackage.model_validate(package_raw)
+
+        request = GenerationRequest(
+            context_package=package,
+            organization_id=orchestration.parse_organization_id(state["organization_id"]),
+            stream=False,
+            is_evaluation=is_evaluation,
         )
+
+        observability = get_configurable(config).get("observability")
+        engine = GenerationEngine(settings, observability=observability)
+        result = await engine.generate(request)
+
         return {
-            "answer": answer,
-            "provider": provider,
+            "answer": result.assistant_text,
+            "provider": result.provider_used,
+            "generation_result": result.model_dump(mode="json"),
             "workflow_trace": trace_event(
-                {"stage": "generation", "mode": "llm", "provider": provider}
+                {"stage": "generation", "mode": "llm", "provider": result.provider_used}
             ),
         }
-    except Exception as exc:
-        scratch.append({"stage": "generation", "error": str(exc), "error_type": type(exc).__name__})
+    except Exception as exception:
+        trace_scratch.append({
+            "stage": "generation",
+            "error": str(exception),
+            "error_type": type(exception).__name__,
+        })
         raise

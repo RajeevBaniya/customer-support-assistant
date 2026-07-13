@@ -1,9 +1,9 @@
-import re
 from dataclasses import dataclass
 
-from src.schemas.retrievalSchemas import RetrievalChunkItem
+import tiktoken
 
-_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+from src.schemas.retrievalSchemas import RetrievalChunkItem
+from src.shared.textHelpers import split_sentences
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,7 @@ def _collapse_duplicate_sentences(block: str) -> tuple[str, int]:
     raw = block.strip()
     if not raw:
         return "", 0
-    pieces = [p.strip() for p in _SENT_SPLIT.split(raw) if p.strip()]
+    pieces = split_sentences(raw)
     if len(pieces) <= 1:
         return raw, 0
     seen: set[str] = set()
@@ -57,8 +57,6 @@ def build_context_text(
         raw_len += len(segment)
         parts.append(segment)
     text = "".join(parts).strip()
-
-    import tiktoken
 
     enc = tiktoken.get_encoding("cl100k_base")
     tokens = enc.encode(text)

@@ -25,11 +25,12 @@ def _parse_groq_usage(data: dict[str, Any]) -> GenerationUsage | None:
 async def groq_chat(
     settings: AppEnvironment,
     *,
+    api_key: str,
     system: str,
     user: str,
     timeout_seconds: float,
 ) -> tuple[str, GenerationUsage | None]:
-    key = settings.groq_api_key
+    key = api_key
     if not key or not str(key).strip():
         raise RuntimeError("groq_key_missing")
     payload: dict[str, Any] = {
@@ -66,11 +67,12 @@ async def groq_chat(
 async def groq_chat_stream(
     settings: AppEnvironment,
     *,
+    api_key: str,
     system: str,
     user: str,
     timeout_seconds: float,
 ) -> AsyncIterator[str]:
-    key = settings.groq_api_key
+    key = api_key
     if not key or not str(key).strip():
         raise RuntimeError("groq_key_missing")
     payload: dict[str, Any] = {
