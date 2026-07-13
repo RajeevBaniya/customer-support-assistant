@@ -1,9 +1,12 @@
+"""Parser registry managing mapping and health checks for document parsers."""
+
 from collections.abc import Callable
 
-from src.parsing.docxParser import extract_text as docx_extract
-from src.parsing.markdownParser import extract_text as markdown_extract
-from src.parsing.pdfParser import extract_text as pdf_extract
-from src.parsing.textParser import extract_text as text_extract
+from src.parsing.baseParser import BaseParser
+from src.parsing.docxParser import DocxParser
+from src.parsing.markdownParser import MarkdownParser
+from src.parsing.pdfParser import PdfParser
+from src.parsing.textParser import TextParser
 
 MIME_TO_PARSER_KEY: dict[str, str] = {
     "application/pdf": "pdf",
@@ -13,61 +16,85 @@ MIME_TO_PARSER_KEY: dict[str, str] = {
     "text/x-markdown": "markdown",
 }
 
+_PARSERS: dict[str, BaseParser] = {
+    "pdf": PdfParser(),
+    "docx": DocxParser(),
+    "text": TextParser(),
+    "markdown": MarkdownParser(),
+}
+
 
 def parser_key_for_mime(mime_type: str) -> str | None:
+    """Return parser key identifier associated with a MIME type."""
     base = (mime_type or "").split(";", 1)[0].strip().lower()
     return MIME_TO_PARSER_KEY.get(base)
 
 
 def supported_mime_types() -> list[str]:
+    """Return sorted list of all supported MIME types."""
     return sorted(MIME_TO_PARSER_KEY.keys())
 
 
 def probe_imports() -> dict[str, bool]:
-    out: dict[str, bool] = {}
+    """Inspect environment to check if third-party parser libraries are installed."""
+    status_map: dict[str, bool] = {}
     try:
         import pypdf  # noqa: F401
 
-        out["pdf"] = True
+        status_map["pdf"] = True
     except ImportError:
-        out["pdf"] = False
+        status_map["pdf"] = False
     try:
         import docx  # noqa: F401
 
-        out["docx"] = True
+        status_map["docx"] = True
     except ImportError:
-        out["docx"] = False
-    out["text"] = True
+        status_map["docx"] = False
+    status_map["text"] = True
     try:
         import bs4  # noqa: F401
         import markdown  # noqa: F401
 
-        out["markdown"] = True
+        status_map["markdown"] = True
     except ImportError:
-        out["markdown"] = False
-    return out
+        status_map["markdown"] = False
+    return status_map
 
 
 def parsing_health() -> dict[str, object]:
-    flags = probe_imports()
-    ready = (
-        flags.get("pdf") and flags.get("docx") and flags.get("markdown") and flags.get("text", True)
+    """Gather health and readiness status of parsing libraries."""
+    import_flags = probe_imports()
+    is_ready = (
+        import_flags.get("pdf")
+        and import_flags.get("docx")
+        and import_flags.get("markdown")
+        and import_flags.get("text", True)
     )
     return {
         "supported_mime_types": supported_mime_types(),
-        "parsers": flags,
-        "ready": bool(ready),
+        "parsers": import_flags,
+        "ready": bool(is_ready),
     }
 
 
-def parser_callable_for_mime(mime_type: str) -> Callable[[bytes], str] | None:
+def parser_for_mime(mime_type: str) -> BaseParser | None:
+    """Retrieve parser instance associated with a MIME type."""
     key = parser_key_for_mime(mime_type)
-    if key == "pdf":
-        return pdf_extract
-    if key == "docx":
-        return docx_extract
-    if key == "text":
-        return text_extract
-    if key == "markdown":
-        return markdown_extract
-    return None
+    if key is None:
+        return None
+    return _PARSERS.get(key)
+
+
+def parser_callable_for_mime(mime_type: str) -> Callable[[bytes], str] | None:
+    """Legacy backward compatibility method."""
+    parser = parser_for_mime(mime_type)
+    if parser is None:
+        return None
+
+    from uuid import uuid4
+
+    def _extract(data: bytes) -> str:
+        document = parser.parse(data, uuid4())
+        return "\n\n".join(block.content for block in document.blocks)
+
+    return _extract
