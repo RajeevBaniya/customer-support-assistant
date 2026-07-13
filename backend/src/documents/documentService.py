@@ -57,27 +57,9 @@ class DocumentService:
         upload: UploadFile,
         actor: User,
     ) -> DocumentUploadResponse:
-        original = uploadSecurity.normalize_original_filename(upload.filename)
-        uploadSecurity.assert_extension_not_blocked(original)
-        data, sha256 = await read_upload_with_sha256(
-            upload,
-            max_bytes=uploadSecurity.MAX_UPLOAD_BYTES,
-        )
-        uploadSecurity.assert_upload_size(len(data))
-        ext, mime = mimeValidator.validate_document_upload(
-            original_file_name=original,
-            declared_content_type=upload.content_type,
-            file_bytes=data,
-        )
-        self._scanner.scan(data, original)
+        """Upload document, save DB record, store to Cloudinary, and trigger ingestion job."""
+        original, data, sha256, ext, mime = await self._validate_and_read(upload)
         stored_name = f"{uuid4().hex}{ext}"
-        if not self._settings.cloudinary_configured():
-            raise BaseApplicationException(
-                "File storage is not configured",
-                error_code="storage_not_ready",
-                status_code=503,
-                details={"provider": "cloudinary"},
-            )
 
         row = Document(
             organization_id=actor.organization_id,
@@ -96,6 +78,49 @@ class DocumentService:
             vector_count=0,
         )
         await self._repo.add(row)
+
+        await self._upload_to_cloud(row, actor, stored_name, data, mime)
+        job_id = await self._create_ingestion_job(row, actor)
+
+        base = DocumentUploadResponse.model_validate(row)
+        return base.model_copy(update={"ingestion_job_id": job_id})
+
+    async def _validate_and_read(self, upload: UploadFile) -> tuple[str, bytes, str, str, str]:
+        """Validate filename, size, mime type, scan for dangerous content, and extract bytes."""
+        original = uploadSecurity.normalize_original_filename(upload.filename)
+        uploadSecurity.assert_extension_not_blocked(original)
+
+        data, sha256 = await read_upload_with_sha256(
+            upload,
+            max_bytes=uploadSecurity.MAX_UPLOAD_BYTES,
+        )
+        uploadSecurity.assert_upload_size(len(data))
+
+        ext, mime = mimeValidator.validate_document_upload(
+            original_file_name=original,
+            declared_content_type=upload.content_type,
+            file_bytes=data,
+        )
+        self._scanner.scan(data, original)
+
+        if not self._settings.cloudinary_configured():
+            raise BaseApplicationException(
+                "File storage is not configured",
+                error_code="storage_not_ready",
+                status_code=503,
+                details={"provider": "cloudinary"},
+            )
+        return original, data, sha256, ext, mime
+
+    async def _upload_to_cloud(
+        self,
+        row: Document,
+        actor: User,
+        stored_name: str,
+        data: bytes,
+        mime: str,
+    ) -> None:
+        """Upload file bytes to cloud storage and update document upload status."""
         try:
             path = await self._storage.upload_file(
                 organization_id=actor.organization_id,
@@ -118,6 +143,9 @@ class DocumentService:
         row.storage_path = path
         row.upload_status = "stored"
         await self._repo.flush()
+
+    async def _create_ingestion_job(self, row: Document, actor: User) -> UUID:
+        """Cancel current active jobs, register a new job, and enqueue the task."""
         await self._ingestion_jobs.cancel_active_for_document(document_id=row.id)
         job = IngestionJob(
             organization_id=actor.organization_id,
@@ -127,6 +155,7 @@ class DocumentService:
         await self._ingestion_jobs.add(job)
         await self._repo.flush()
         await self._session.commit()
+
         try:
             enqueue_ingestion_job(job_id=job.id)
         except Exception as exc:
@@ -140,9 +169,7 @@ class DocumentService:
                 status_code=503,
                 details={"reason": str(exc)},
             ) from exc
-
-        base = DocumentUploadResponse.model_validate(row)
-        return base.model_copy(update={"ingestion_job_id": job.id})
+        return job.id
 
     async def cancel_ingestion(
         self,

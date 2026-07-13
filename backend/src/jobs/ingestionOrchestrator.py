@@ -91,6 +91,7 @@ async def run_ingestion_for_job(
         return
     try:
         await run_embedding_ingest(
+            session=session,
             settings=settings,
             row=document,
             parsed=parsed,
