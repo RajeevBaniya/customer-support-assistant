@@ -48,14 +48,32 @@ class AppEnvironment(BaseSettings):
     cloudinary_api_key: str | None = Field(default=None, alias="CLOUDINARY_API_KEY")
     cloudinary_api_secret: str | None = Field(default=None, alias="CLOUDINARY_API_SECRET")
 
-    groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
-    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    enable_original_file_storage: bool = Field(default=False, alias="ENABLE_ORIGINAL_FILE_STORAGE")
+    supabase_url: str | None = Field(default=None, alias="SUPABASE_URL")
+    supabase_service_role_key: str | None = Field(default=None, alias="SUPABASE_SERVICE_ROLE_KEY")
+    supabase_storage_bucket: str | None = Field(default=None, alias="SUPABASE_STORAGE_BUCKET")
+
+    planning_api_key: str | None = Field(default=None, alias="PLANNING_API_KEY")
+    context_api_key: str | None = Field(default=None, alias="CONTEXT_API_KEY")
+    generation_api_key: str | None = Field(default=None, alias="GENERATION_API_KEY")
+    evaluation_api_key: str | None = Field(default=None, alias="EVALUATION_API_KEY")
+    fallback_generation_api_key: str | None = Field(
+        default=None, alias="FALLBACK_GENERATION_API_KEY"
+    )
+    huggingface_api_key: str | None = Field(default=None, alias="HUGGINGFACE_API_KEY")
     embedding_model: str = Field(
         default="BAAI/bge-base-en-v1.5",
         alias="EMBEDDING_MODEL",
         min_length=1,
     )
     embedding_batch_size: int = Field(default=32, alias="EMBEDDING_BATCH_SIZE", ge=1, le=512)
+    embedding_max_retries: int = Field(default=3, alias="EMBEDDING_MAX_RETRIES", ge=1, le=10)
+    embedding_retry_delay_seconds: float = Field(
+        default=2.0, alias="EMBEDDING_RETRY_DELAY_SECONDS", ge=0.1, le=60.0
+    )
+    embedding_timeout_seconds: float = Field(
+        default=30.0, alias="EMBEDDING_TIMEOUT_SECONDS", ge=1.0, le=300.0
+    )
     retrieval_default_top_k: int = Field(default=8, alias="RETRIEVAL_DEFAULT_TOP_K", ge=1, le=50)
     retrieval_max_top_k: int = Field(default=50, alias="RETRIEVAL_MAX_TOP_K", ge=1, le=100)
     retrieval_minimum_similarity: float = Field(
@@ -81,6 +99,9 @@ class AppEnvironment(BaseSettings):
         le=200,
     )
     active_llm_provider: str = Field(default="groq", alias="ACTIVE_LLM_PROVIDER", min_length=1)
+    fallback_llm_provider: str = Field(
+        default="gemini", alias="FALLBACK_LLM_PROVIDER", min_length=1
+    )
     groq_model: str = Field(default="llama-3.1-8b-instant", alias="GROQ_MODEL", min_length=1)
     gemini_model: str = Field(default="gemini-1.5-flash", alias="GEMINI_MODEL", min_length=1)
     rag_max_chunks: int = Field(default=6, alias="RAG_MAX_CHUNKS", ge=1, le=50)
@@ -148,6 +169,24 @@ class AppEnvironment(BaseSettings):
         alias="CHUNK_OVERLAP",
         ge=0,
         le=25000,
+    )
+    parent_chunk_size: int = Field(
+        default=1200,
+        alias="PARENT_CHUNK_SIZE",
+        ge=10,
+        le=50000,
+    )
+    child_chunk_size: int = Field(
+        default=400,
+        alias="CHILD_CHUNK_SIZE",
+        ge=10,
+        le=25000,
+    )
+    child_chunk_overlap: int = Field(
+        default=50,
+        alias="CHILD_CHUNK_OVERLAP",
+        ge=0,
+        le=12500,
     )
 
     clerk_webhook_signing_key: str | None = Field(default=None, alias="CLERK_WEBHOOK_SIGNING_KEY")
@@ -236,12 +275,12 @@ class AppEnvironment(BaseSettings):
         s = str(value).strip()
         return s or None
 
-    @field_validator("active_llm_provider")
+    @field_validator("active_llm_provider", "fallback_llm_provider")
     @classmethod
-    def normalize_active_llm_provider(cls, value: str) -> str:
+    def normalize_llm_provider(cls, value: str) -> str:
         name = value.strip().lower()
         if name not in {"groq", "gemini"}:
-            raise ValueError("ACTIVE_LLM_PROVIDER must be 'groq' or 'gemini'")
+            raise ValueError("LLM provider must be 'groq' or 'gemini'")
         return name
 
     @field_validator("database_url")

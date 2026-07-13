@@ -16,8 +16,12 @@ _REQUIRED_SECRET_FIELDS: tuple[tuple[str, str], ...] = (
     ("CLOUDINARY_API_SECRET", "cloudinary_api_secret"),
     ("CLERK_JWT_ISSUER", "clerk_jwt_issuer"),
     ("CLERK_WEBHOOK_SIGNING_KEY", "clerk_webhook_signing_key"),
-    ("GROQ_API_KEY", "groq_api_key"),
-    ("GEMINI_API_KEY", "gemini_api_key"),
+    ("PLANNING_API_KEY", "planning_api_key"),
+    ("CONTEXT_API_KEY", "context_api_key"),
+    ("GENERATION_API_KEY", "generation_api_key"),
+    ("EVALUATION_API_KEY", "evaluation_api_key"),
+    ("FALLBACK_GENERATION_API_KEY", "fallback_generation_api_key"),
+    ("HUGGINGFACE_API_KEY", "huggingface_api_key"),
 )
 
 
@@ -26,25 +30,25 @@ def is_strict_deployment_env(app_env: str) -> bool:
 
 
 def _field_present(settings: AppEnvironment, attr: str) -> bool:
-    raw = getattr(settings, attr, None)
-    if raw is None:
+    field_value = getattr(settings, attr, None)
+    if field_value is None:
         return False
-    return bool(str(raw).strip())
+    return bool(str(field_value).strip())
 
 
 def missing_deployment_requirements(settings: AppEnvironment) -> list[str]:
-    missing: list[str] = []
+    missing_fields: list[str] = []
     for env_name, attr in _REQUIRED_SECRET_FIELDS:
         if not _field_present(settings, attr):
-            missing.append(env_name)
-    return missing
+            missing_fields.append(env_name)
+    return missing_fields
 
 
 def enforce_deployment_settings(settings: AppEnvironment) -> None:
     if not is_strict_deployment_env(settings.app_env):
         return
-    missing = missing_deployment_requirements(settings)
-    if not missing:
+    missing_fields = missing_deployment_requirements(settings)
+    if not missing_fields:
         return
-    joined = ", ".join(missing)
-    raise ValueError(f"deployment_configuration_incomplete: missing {joined}")
+    joined_missing_fields = ", ".join(missing_fields)
+    raise ValueError(f"deployment_configuration_incomplete: missing {joined_missing_fields}")
