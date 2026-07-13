@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from rank_bm25 import BM25Okapi
+from rank_bm25 import BM25Okapi  # type: ignore
 
 from src.core.appEnvironment import AppEnvironment
 from src.models.documentModel import Document
@@ -102,8 +102,14 @@ def run_rerank_dedupe_pipeline(
         tokenized_query = list(_tokens(query))
         bm25_scores = bm25.get_scores(tokenized_query)
 
-        dense_sorted_indices = sorted(range(len(ready_scored)), key=lambda idx: (-ready_scored[idx][1], idx))
-        sparse_sorted_indices = sorted(range(len(ready_scored)), key=lambda idx: (-bm25_scores[idx], idx))
+        dense_sorted_indices = sorted(
+            range(len(ready_scored)),
+            key=lambda idx: (-ready_scored[idx][1], idx),
+        )
+        sparse_sorted_indices = sorted(
+            range(len(ready_scored)),
+            key=lambda idx: (-bm25_scores[idx], idx),
+        )
 
         dense_ranks = {idx: rank for rank, idx in enumerate(dense_sorted_indices, start=1)}
         sparse_ranks = {idx: rank for rank, idx in enumerate(sparse_sorted_indices, start=1)}

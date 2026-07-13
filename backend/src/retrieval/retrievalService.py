@@ -111,12 +111,7 @@ class RetrievalService:
             return RetrievalSearchResponse(items=[], query=body.query, top_k=top_k)
 
         doc_ids = list({h.document_id for h, _ in post_sim})
-        from src.database.databaseSession import session_scope
-        from src.documents.documentRepository import DocumentRepository
-
-        async with session_scope() as db_session:
-            repo = DocumentRepository(db_session)
-            doc_map = await repo.map_by_ids_for_org(organization_id, doc_ids)
+        doc_map = await self._documents.map_by_ids_for_org(organization_id, doc_ids)
 
         ready: list[tuple[VectorQueryHit, float]] = []
         for hit, sim in post_sim:
