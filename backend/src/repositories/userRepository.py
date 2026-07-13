@@ -13,19 +13,23 @@ class UserRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_by_clerk_id(self, clerk_user_id: str) -> User | None:
+    async def _fetch_user_by_clerk_id(
+        self,
+        clerk_user_id: str,
+        *,
+        with_relations: bool = False,
+    ) -> User | None:
         stmt = select(User).where(User.clerk_user_id == clerk_user_id)
+        if with_relations:
+            stmt = stmt.options(selectinload(User.organization), selectinload(User.roles))
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_clerk_id(self, clerk_user_id: str) -> User | None:
+        return await self._fetch_user_by_clerk_id(clerk_user_id)
+
     async def get_by_clerk_id_with_org(self, clerk_user_id: str) -> User | None:
-        stmt = (
-            select(User)
-            .options(selectinload(User.organization), selectinload(User.roles))
-            .where(User.clerk_user_id == clerk_user_id)
-        )
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        return await self._fetch_user_by_clerk_id(clerk_user_id, with_relations=True)
 
     async def get_role_by_name(self, role_name: str) -> Role | None:
         stmt = select(Role).where(Role.role_name == role_name)
