@@ -115,3 +115,53 @@ HYBRID_RRF_DURATION = Histogram(
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
 )
 
+
+INGESTION_PARSING_LATENCY = Histogram(
+    "recallstack_ingestion_parsing_duration_seconds",
+    "Ingestion parsing latency",
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+)
+
+INGESTION_CHUNKING_LATENCY = Histogram(
+    "recallstack_ingestion_chunking_duration_seconds",
+    "Ingestion semantic chunking latency",
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+)
+
+INGESTION_EMBEDDING_LATENCY = Histogram(
+    "recallstack_ingestion_embedding_duration_seconds",
+    "Ingestion embedding latency",
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+)
+
+INGESTION_INDEXING_LATENCY = Histogram(
+    "recallstack_ingestion_indexing_duration_seconds",
+    "Ingestion indexing latency",
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+)
+
+INGESTION_CHUNKS_GENERATED = Histogram(
+    "recallstack_ingestion_chunks_generated",
+    "Total chunks generated per document during ingestion",
+    buckets=(1, 5, 10, 20, 50, 100, 250, 500, 1000),
+)
+
+INGESTION_DUPLICATES_REMOVED = Histogram(
+    "recallstack_ingestion_duplicates_removed",
+    "Duplicate chunks removed per document during ingestion",
+    buckets=(0, 1, 5, 10, 20, 50, 100, 250, 500),
+)
+
+INGESTION_CHUNK_SIZE_AVG = Histogram(
+    "recallstack_ingestion_chunk_size_average_chars",
+    "Average chunk size in characters per document during ingestion",
+    buckets=(100, 250, 500, 750, 1000, 1250, 1500, 2000),
+)
+
+INGESTION_BATCH_COUNT = Histogram(
+    "recallstack_ingestion_batch_count",
+    "Total embedding batches executed per document during ingestion",
+    buckets=(1, 2, 5, 10, 20, 50, 100),
+)
+
+

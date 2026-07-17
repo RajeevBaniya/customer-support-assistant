@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,12 +21,15 @@ _rate_limit_upload = rate_limited("documents_upload", lambda s: s.rate_limit_doc
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
+    store_original_file: bool = Form(default=False),
     user: User = Depends(get_application_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
     settings: AppEnvironment = request.app.state.settings
     service = DocumentService.from_request(session, settings)
-    payload = await service.upload(upload=file, actor=user)
+    payload = await service.upload(
+        upload=file, actor=user, store_original_file=store_original_file
+    )
     body = format_success_response(payload.model_dump(mode="json"), message="Uploaded")
     return JSONResponse(content=body)
 

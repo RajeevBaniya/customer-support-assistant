@@ -16,9 +16,8 @@ def evaluation_health_bundle() -> EvaluationHealthBundle:
         "benchmark_registry_ready": False,
     }
     try:
-        from src.evaluation.pipelines.evaluation_graph_registry import register_evaluation_graph
+        from src.evaluationEngine.evaluationEngine import EvaluationEngine  # noqa: F401
 
-        register_evaluation_graph()
         out["evaluation_engine_ready"] = True
     except Exception as exc:
         out["evaluation_engine_error"] = str(exc)

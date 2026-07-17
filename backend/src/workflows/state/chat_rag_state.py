@@ -4,6 +4,7 @@ from collections.abc import Mapping, MutableMapping
 from typing import Annotated, Any, TypedDict
 
 from src.observability.tracing.workflow_trace import enrich_trace_row
+from src.planning.queryRewriteModels import QueryRewriteResult
 from src.workflows.trace.workflow_trace_reducer import workflow_trace_reducer
 
 
@@ -28,6 +29,7 @@ class ChatRagState(TypedDict, total=False):
     provider: str
     context_package: dict[str, Any]
     generation_result: dict[str, Any]
+    query_rewrite_result: QueryRewriteResult | None
 
 
 def trace_event(row: Mapping[str, Any]) -> list[dict[str, Any]]:

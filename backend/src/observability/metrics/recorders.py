@@ -142,3 +142,46 @@ def record_hybrid_retrieval(*, pool_size: int, duration_s: float) -> None:
     m.HYBRID_RETRIEVAL_REQUESTS.inc()
     m.HYBRID_CANDIDATE_POOL_SIZE.observe(float(pool_size))
     m.HYBRID_RRF_DURATION.observe(duration_s)
+
+
+def record_detailed_ingestion(
+    *,
+    organization_id: UUID | None,
+    parsing_duration: float,
+    semantic_chunking_duration: float,
+    embedding_duration: float,
+    indexing_duration: float,
+    total_ingestion_duration: float,
+    total_chunks_generated: int,
+    duplicate_chunks_removed: int,
+    average_chunk_size: float,
+    embedding_batch_count: int,
+) -> None:
+    """Record Prometheus metrics and append organizational ingestion event details."""
+    m.INGESTION_PARSING_LATENCY.observe(parsing_duration)
+    m.INGESTION_CHUNKING_LATENCY.observe(semantic_chunking_duration)
+    m.INGESTION_EMBEDDING_LATENCY.observe(embedding_duration)
+    m.INGESTION_INDEXING_LATENCY.observe(indexing_duration)
+    m.INGESTION_DURATION.observe(total_ingestion_duration)
+    m.INGESTION_CHUNKS_GENERATED.observe(float(total_chunks_generated))
+    m.INGESTION_DUPLICATES_REMOVED.observe(float(duplicate_chunks_removed))
+    m.INGESTION_CHUNK_SIZE_AVG.observe(average_chunk_size)
+    m.INGESTION_BATCH_COUNT.observe(float(embedding_batch_count))
+
+    if organization_id is not None:
+        append_org_event(
+            organization_id=organization_id,
+            kind="ingestion",
+            payload={
+                "parsing_duration_ms": int(parsing_duration * 1000.0),
+                "semantic_chunking_duration_ms": int(semantic_chunking_duration * 1000.0),
+                "embedding_duration_ms": int(embedding_duration * 1000.0),
+                "indexing_duration_ms": int(indexing_duration * 1000.0),
+                "total_ingestion_duration_ms": int(total_ingestion_duration * 1000.0),
+                "total_chunks_generated": total_chunks_generated,
+                "duplicate_chunks_removed": duplicate_chunks_removed,
+                "average_chunk_size": round(average_chunk_size, 2),
+                "embedding_batch_count": embedding_batch_count,
+            },
+        )
+

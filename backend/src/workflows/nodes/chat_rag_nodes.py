@@ -63,21 +63,35 @@ def get_retrieval_tool(config: RunnableConfig) -> RetrieveTool:
 
 
 async def prepare_query_node(state: ChatRagState, config: RunnableConfig) -> dict[str, Any]:
-    """Prepare search query using history context."""
-    del config
+    """Prepare search query using history context or intelligent rewritten query."""
+    config_val = get_configurable(config).get("query_rewrite_result")
+    query_rewrite = state.get("query_rewrite_result") or config_val
     search_request = RetrievalSearchRequest.model_validate(state["body"])
-    prior_turns_text = state.get("prior_turns_text")
-    blended_request = orchestration.blended_retrieval_request(search_request, prior_turns_text)
-    return {
+
+    if query_rewrite and query_rewrite.rewrite_performed:
+        blended_request = search_request.model_copy(
+            update={"query": query_rewrite.rewritten_query}
+        )
+        rewrite_performed = True
+    else:
+        prior_turns_text = state.get("prior_turns_text")
+        blended_request = orchestration.blended_retrieval_request(search_request, prior_turns_text)
+        rewrite_performed = False
+
+    res: dict[str, Any] = {
         "retrieval_body": blended_request.model_dump(mode="json"),
         "workflow_trace": trace_event(
             {
                 "stage": "prepare_query",
                 "blended_query_len": len(blended_request.query),
                 "top_k_request": search_request.top_k,
+                "rewrite_performed": rewrite_performed,
             }
         ),
     }
+    if query_rewrite:
+        res["query_rewrite_result"] = query_rewrite
+    return res
 
 
 async def retrieval_node(state: ChatRagState, config: RunnableConfig) -> dict[str, Any]:
