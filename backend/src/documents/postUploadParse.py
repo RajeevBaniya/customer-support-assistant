@@ -102,7 +102,10 @@ async def run_parse_and_preview(
     # 2. Run Structure-aware chunking (generating initial parent chunks)
     try:
         parents, fallback_count, overlap_count, chunking_duration = await _run_chunker_with_timer(
-            doc, parent_size, overlap
+            doc=doc,
+            parent_size=parent_size,
+            overlap=overlap,
+            settings=settings,
         )
     except Exception as exc:
         logger.error("chunking_failed", error=str(exc), success=False)
@@ -180,10 +183,21 @@ async def _run_chunker_with_timer(
     doc: CanonicalDocument,
     parent_size: int,
     overlap: int,
+    settings: AppEnvironment | None = None,
 ) -> tuple[list[DocChunk], int, int, float]:
     """Run structure aware chunker and return output with metrics and duration."""
     t_start = perf_counter()
-    chunker = StructureAwareChunker(chunk_size=parent_size, overlap=overlap)
+    max_tokens = settings.semantic_chunk_max_tokens if settings is not None else 300
+    min_tokens = settings.semantic_chunk_min_tokens if settings is not None else 25
+    ing_version = settings.ingestion_version if settings is not None else "1.0.0"
+
+    chunker = StructureAwareChunker(
+        chunk_size=parent_size,
+        overlap=overlap,
+        max_tokens=max_tokens,
+        min_tokens=min_tokens,
+        ingestion_version=ing_version,
+    )
     parents = chunker.chunk(doc)
     duration = perf_counter() - t_start
 

@@ -14,7 +14,10 @@ from src.documents.ingestionRetryPolicy import (
 from src.documents.ingestVectors import run_embedding_ingest
 from src.documents.postUploadParse import run_parse_and_preview
 from src.models.ingestionJobModel import INGESTION_JOB_CANCELLED
+from src.observability.structuredLogger import get_logger
 from src.storage.storageBinding import storage_provider_for
+
+logger = get_logger(__name__)
 
 
 async def _job_is_cancelled(session: AsyncSession, job_id: UUID) -> bool:
@@ -53,62 +56,81 @@ async def run_ingestion_for_job(
         return
     storage = storage_provider_for(settings)
     try:
-        data = await storage.get_file(
-            organization_id=document.organization_id,
-            storage_path=document.storage_path,
-        )
-    except Exception as exc:
-        if is_transient_ingestion_failure(exc):
-            raise IngestionTransientError(str(exc)) from exc
-        await jobs.mark_failed(job_id, message=f"storage_read:{exc!s}")
-        await session.commit()
-        return
-    if await _job_is_cancelled(session, job_id):
-        await session.commit()
-        return
-    parsed = await run_parse_and_preview(
-        document_id=document.id,
-        mime_type=document.mime_type,
-        data=data,
-        settings=settings,
-    )
-    document.parsing_status = parsed.parsing_status
-    document.parser_type = parsed.parser_type
-    document.chunk_count = parsed.chunk_count
-    document.parsed_at = parsed.parsed_at
-    if parsed.parsing_status != "parsed":
-        document.embedding_status = "skipped"
-    await docs.flush()
-    await session.commit()
-    if await _job_is_cancelled(session, job_id):
-        return
-    if parsed.parsing_status != "parsed":
-        await jobs.mark_failed(
-            job_id,
-            message=parsed.parse_error or "parse_failed",
-        )
-        await session.commit()
-        return
-    try:
-        await run_embedding_ingest(
-            session=session,
+        try:
+            data = await storage.get_file(
+                organization_id=document.organization_id,
+                storage_path=document.storage_path,
+            )
+        except Exception as exc:
+            if is_transient_ingestion_failure(exc):
+                raise IngestionTransientError(str(exc)) from exc
+            await jobs.mark_failed(job_id, message=f"storage_read:{exc!s}")
+            await session.commit()
+            return
+        if await _job_is_cancelled(session, job_id):
+            await session.commit()
+            return
+        parsed = await run_parse_and_preview(
+            document_id=document.id,
+            mime_type=document.mime_type,
+            data=data,
             settings=settings,
-            row=document,
-            parsed=parsed,
-            raise_transient=True,
         )
-    except IngestionTransientError:
-        raise
-    except Exception as exc:
-        await jobs.mark_failed(job_id, message=f"embed:{exc!s}")
+        document.parsing_status = parsed.parsing_status
+        document.parser_type = parsed.parser_type
+        document.chunk_count = parsed.chunk_count
+        document.parsed_at = parsed.parsed_at
+        if parsed.parsing_status != "parsed":
+            document.embedding_status = "skipped"
+        await docs.flush()
         await session.commit()
-        return
-    await docs.flush()
-    if document.embedding_status == "failed":
-        await jobs.mark_failed(job_id, message="embedding_failed")
+        if await _job_is_cancelled(session, job_id):
+            return
+        if parsed.parsing_status != "parsed":
+            await jobs.mark_failed(
+                job_id,
+                message=parsed.parse_error or "parse_failed",
+            )
+            await session.commit()
+            return
+        try:
+            await run_embedding_ingest(
+                session=session,
+                settings=settings,
+                row=document,
+                parsed=parsed,
+                raise_transient=True,
+            )
+        except IngestionTransientError:
+            raise
+        except Exception as exc:
+            await jobs.mark_failed(job_id, message=f"embed:{exc!s}")
+            await session.commit()
+            return
+        await docs.flush()
+        if document.embedding_status == "failed":
+            await jobs.mark_failed(job_id, message="embedding_failed")
+            await session.commit()
+            return
+        if await _job_is_cancelled(session, job_id):
+            return
+        await jobs.mark_completed(job_id)
         await session.commit()
-        return
-    if await _job_is_cancelled(session, job_id):
-        return
-    await jobs.mark_completed(job_id)
-    await session.commit()
+    finally:
+        if (
+            document is not None
+            and document.stored_file_name.startswith("temp_")
+            and document.storage_path
+        ):
+            try:
+                storage = storage_provider_for(settings)
+                await storage.delete_file(
+                    organization_id=document.organization_id,
+                    storage_path=document.storage_path,
+                )
+                document.storage_path = ""
+                document.upload_status = "deleted"
+                await docs.flush()
+                await session.commit()
+            except Exception as exc:
+                logger.warning("temp_file_cleanup_failed", error=str(exc))

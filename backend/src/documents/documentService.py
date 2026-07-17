@@ -56,10 +56,20 @@ class DocumentService:
         *,
         upload: UploadFile,
         actor: User,
+        store_original_file: bool = False,
     ) -> DocumentUploadResponse:
-        """Upload document, save DB record, store to Cloudinary, and trigger ingestion job."""
+        """Upload document, save record, store to cloud, and trigger ingestion job."""
         original, data, sha256, ext, mime = await self._validate_and_read(upload)
-        stored_name = f"{uuid4().hex}{ext}"
+
+        is_temp = self._settings.enable_original_file_storage and not store_original_file
+        if is_temp:
+            stored_name = f"temp_{uuid4().hex}{ext}"
+        else:
+            stored_name = f"{uuid4().hex}{ext}"
+
+        provider_name = (
+            "supabase" if self._settings.enable_original_file_storage else "cloudinary"
+        )
 
         row = Document(
             organization_id=actor.organization_id,
@@ -68,7 +78,7 @@ class DocumentService:
             stored_file_name=stored_name,
             mime_type=mime,
             file_size=len(data),
-            storage_provider="cloudinary",
+            storage_provider=provider_name,
             storage_path="",
             upload_status="pending",
             content_sha256=sha256,
@@ -82,6 +92,7 @@ class DocumentService:
         await self._upload_to_cloud(row, actor, stored_name, data, mime)
         job_id = await self._create_ingestion_job(row, actor)
 
+        row.ingestion_job_id = job_id  # type: ignore[attr-defined]
         base = DocumentUploadResponse.model_validate(row)
         return base.model_copy(update={"ingestion_job_id": job_id})
 

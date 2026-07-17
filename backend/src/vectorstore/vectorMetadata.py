@@ -56,11 +56,14 @@ def build_child_chunk_metadata(
     child: ChildChunk,
     organization_id: UUID,
     uploaded_at: datetime,
+    filename: str | None = None,
+    file_type: str | None = None,
 ) -> dict[str, Any]:
     """Build rich metadata payload dictionary representing a ChildChunk for Pinecone."""
     return {
         "document_id": str(child.document_id),
         "organization_id": str(organization_id),
+        "workspace_id": str(organization_id),
         "parent_id": str(child.parent_id),
         "child_id": str(child.child_id),
         "block_ids": [str(block_id) for block_id in child.block_ids],
@@ -75,6 +78,15 @@ def build_child_chunk_metadata(
             float(confidence) for confidence in child.structure_confidence
         ],
         "uploaded_at": uploaded_at.isoformat(),
+        "created_at": uploaded_at.isoformat(),
+        "filename": filename or "",
+        "file_type": file_type or "",
+        "page_number": child.page_numbers[0] if child.page_numbers else 1,
+        "section_title": child.section_title or "",
+        "section_id": str(child.section_id) if child.section_id else "",
+        "chunk_index": child.chunk_index,
+        "chunk_hash": child.chunk_hash or "",
+        "ingestion_version": child.ingestion_version or "1.0.0",
     }
 
 
@@ -83,11 +95,14 @@ def build_parent_chunk_vector_metadata(
     parent: DocChunk,
     organization_id: UUID,
     uploaded_at: datetime,
+    filename: str | None = None,
+    file_type: str | None = None,
 ) -> dict[str, Any]:
     """Build rich metadata payload dictionary representing a Parent DocChunk for Pinecone."""
     return {
         "document_id": str(parent.document_id),
         "organization_id": str(organization_id),
+        "workspace_id": str(organization_id),
         "parent_id": str(parent.parent_id) if parent.parent_id else "",
         "block_ids": [str(block_id) for block_id in parent.block_ids],
         "block_types": [str(block_type) for block_type in parent.block_types],
@@ -101,4 +116,13 @@ def build_parent_chunk_vector_metadata(
             float(confidence) for confidence in parent.structure_confidence
         ],
         "uploaded_at": uploaded_at.isoformat(),
+        "created_at": uploaded_at.isoformat(),
+        "filename": filename or "",
+        "file_type": file_type or "",
+        "page_number": parent.page_numbers[0] if parent.page_numbers else 1,
+        "section_title": parent.section_title or "",
+        "section_id": str(parent.section_id) if parent.section_id else "",
+        "chunk_index": parent.chunk_index,
+        "chunk_hash": parent.chunk_hash or "",
+        "ingestion_version": parent.ingestion_version or "1.0.0",
     }
