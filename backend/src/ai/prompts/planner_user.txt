@@ -1,0 +1,3 @@
+User Request: {query}
+Workspace Selected Documents Count: {selected_docs_count}
+Has Conversation History: {has_history}

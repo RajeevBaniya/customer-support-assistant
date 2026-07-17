@@ -1,0 +1,3 @@
+Original Query: {query}
+Recent Conversation History: {history}
+Planner Decisions (Complexity: {complexity}, Strategy: {strategy})
