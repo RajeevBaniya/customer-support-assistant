@@ -10,7 +10,6 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.chatService import ChatService
-from src.ai.ragService import RagService
 from src.core.appEnvironment import AppEnvironment
 from src.models.userModel import User
 from src.orchestration.workflowOrchestrator import WorkflowOrchestrator
@@ -40,7 +39,6 @@ class StreamingChatService:
         self._settings = settings
         self._redis = redis_client
         self._chat = ChatService(session, settings)
-        self._rag = RagService(session, settings)
         self._conversation_tool = ConversationTool(session, settings)
         self._metrics_tool = MetricsTool(session, settings)
 

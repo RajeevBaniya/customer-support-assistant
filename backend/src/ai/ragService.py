@@ -12,6 +12,7 @@ from src.observability.metrics.recorders import record_rag_citations
 from src.observability.observabilityEngine import ObservabilityEngine
 from src.observability.structuredLogger import get_logger
 from src.planning.executionPlan import ExecutionPlan
+from src.planning.queryRewriteModels import QueryRewriteResult
 from src.response.responseEngine import ResponseEngine
 from src.response.responseModels import ResponseRequest
 from src.runtimeContext.runtimeContext import RuntimeContext
@@ -47,6 +48,7 @@ class RagService:
         is_evaluation: bool = False,
         context: RuntimeContext | None = None,
         plan: ExecutionPlan | None = None,
+        query_rewrite: QueryRewriteResult | None = None,
     ) -> None:
         self._session = session
         self._settings = settings
@@ -54,6 +56,7 @@ class RagService:
         self._is_evaluation = is_evaluation
         self._context = context
         self._plan = plan
+        self._query_rewrite = query_rewrite
 
     @classmethod
     def from_request(
@@ -64,6 +67,7 @@ class RagService:
         is_evaluation: bool = False,
         context: RuntimeContext | None = None,
         plan: ExecutionPlan | None = None,
+        query_rewrite: QueryRewriteResult | None = None,
     ) -> RagService:
         """Factory constructor."""
         return cls(
@@ -72,6 +76,7 @@ class RagService:
             is_evaluation=is_evaluation,
             context=context,
             plan=plan,
+            query_rewrite=query_rewrite,
         )
 
     def _graph_config(
@@ -89,6 +94,7 @@ class RagService:
                 "context": context,
                 "plan": plan,
                 "observability": observability,
+                "query_rewrite_result": self._query_rewrite,
             }
         }
 
@@ -155,7 +161,7 @@ class RagService:
                 )
 
         planner = PlanningEngine(self._settings)
-        fallback_plan = planner.plan(fallback_context)
+        fallback_plan = await planner.plan(fallback_context)
         return fallback_context, fallback_plan
 
     async def _invoke_chat_rag(
@@ -167,8 +173,12 @@ class RagService:
         stream_mode: bool,
         context: RuntimeContext | None = None,
         plan: ExecutionPlan | None = None,
+        query_rewrite: QueryRewriteResult | None = None,
         observability: ObservabilityEngine | None = None,
     ) -> ChatRagState:
+        if query_rewrite is not None:
+            self._query_rewrite = query_rewrite
+
         state: ChatRagState = {
             "organization_id": str(organization_id),
             "stream_mode": stream_mode,
@@ -176,6 +186,8 @@ class RagService:
             "prior_turns_text": prior_turns_text,
             "workflow_trace": [],
         }
+        if self._query_rewrite is not None:
+            state["query_rewrite_result"] = self._query_rewrite
         resolved_context, resolved_plan = await self._ensure_context_and_plan(
             organization_id=organization_id,
             body=search_request,
@@ -200,6 +212,7 @@ class RagService:
         prior_turns_text: str | None,
         context: RuntimeContext | None = None,
         plan: ExecutionPlan | None = None,
+        query_rewrite: QueryRewriteResult | None = None,
         observability: ObservabilityEngine | None = None,
     ) -> RagStreamPrepareResult:
         """Prepare inputs for a streaming RAG query."""
@@ -210,6 +223,7 @@ class RagService:
             stream_mode=True,
             context=context,
             plan=plan,
+            query_rewrite=query_rewrite,
             observability=observability,
         )
         citations_raw = state.get("citations_json") or []
@@ -236,6 +250,7 @@ class RagService:
         prior_turns_text: str | None = None,
         context: RuntimeContext | None = None,
         plan: ExecutionPlan | None = None,
+        query_rewrite: QueryRewriteResult | None = None,
         observability: ObservabilityEngine | None = None,
     ) -> tuple[RagAskResponse, ChatRagState]:
         """Execute complete RAG workflow and return LangGraph state."""
@@ -246,6 +261,7 @@ class RagService:
             stream_mode=False,
             context=context,
             plan=plan,
+            query_rewrite=query_rewrite,
             observability=observability,
         )
         top_k = int(state.get("retrieval_top_k") or 0)

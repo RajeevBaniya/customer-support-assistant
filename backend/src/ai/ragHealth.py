@@ -1,12 +1,10 @@
+from src.ai.providerRegistry import ProviderRegistry
 from src.core.appEnvironment import AppEnvironment
 from src.retrieval.retrievalHealth import retrieval_health
 
 
 async def rag_health(settings: AppEnvironment) -> dict[str, object]:
     r = await retrieval_health(settings)
-
-    active = settings.active_llm_provider.strip().lower()
-    fallback = settings.fallback_llm_provider.strip().lower()
 
     gen_key_exists = bool(settings.generation_api_key and str(settings.generation_api_key).strip())
     fb_key_exists = bool(
@@ -17,18 +15,29 @@ async def rag_health(settings: AppEnvironment) -> dict[str, object]:
     groq_ready = False
     gemini_ready = False
 
-    if active == "groq" and gen_key_exists:
-        groq_ready = True
-    elif active == "gemini" and gen_key_exists:
-        gemini_ready = True
+    active_provider = "none"
+    if settings.generation_model:
+        try:
+            active_provider, _ = ProviderRegistry.get_provider(settings.generation_model)
+            if active_provider == "groq" and gen_key_exists:
+                groq_ready = True
+            elif active_provider == "gemini" and gen_key_exists:
+                gemini_ready = True
+        except Exception:
+            pass
 
-    if fallback == "groq" and fb_key_exists:
-        groq_ready = True
-    elif fallback == "gemini" and fb_key_exists:
-        gemini_ready = True
+    if settings.fallback_generation_model:
+        try:
+            fb_provider, _ = ProviderRegistry.get_provider(settings.fallback_generation_model)
+            if fb_provider == "groq" and fb_key_exists:
+                groq_ready = True
+            elif fb_provider == "gemini" and fb_key_exists:
+                gemini_ready = True
+        except Exception:
+            pass
 
     return {
-        "active_llm_provider": settings.active_llm_provider,
+        "active_llm_provider": active_provider,
         "groq_ready": groq_ready,
         "gemini_ready": gemini_ready,
         "retrieval_ready": bool(r.get("vector_search_ready")),

@@ -3,9 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from uuid import UUID
 
-from src.ai.geminiProvider import gemini_chat, gemini_chat_stream
 from src.ai.generationUsage import GenerationUsage, usage_from_text_estimate
-from src.ai.groqProvider import groq_chat, groq_chat_stream
 from src.core.appEnvironment import AppEnvironment
 from src.observability.metrics.recorders import record_generation_usage
 from src.shared.customExceptions import BaseApplicationException
@@ -40,59 +38,57 @@ async def complete_with_fallback(
     is_evaluation: bool = False,
 ) -> tuple[str, str]:
     timeout = float(settings.llm_timeout_seconds)
-    primary = settings.active_llm_provider.strip().lower()
-    fallback = settings.fallback_llm_provider.strip().lower()
 
     if is_evaluation:
         primary_key = settings.evaluation_api_key
-        fallback_key = settings.evaluation_api_key
+        primary_model = settings.evaluation_model
+        fallback_key = None
+        fallback_model = None
     else:
         primary_key = settings.generation_api_key
+        primary_model = settings.generation_model
         fallback_key = settings.fallback_generation_api_key
+        fallback_model = settings.fallback_generation_model
 
-    order = [(primary, primary_key), (fallback, fallback_key)]
+    order = []
+    if primary_key and str(primary_key).strip() and primary_model:
+        order.append((primary_model, primary_key))
+    if fallback_key and str(fallback_key).strip() and fallback_model:
+        order.append((fallback_model, fallback_key))
+
+    if not order:
+        raise BaseApplicationException(
+            "No LLM provider keys or models configured",
+            error_code="rag_provider_unavailable",
+            status_code=503,
+            details={"reason": "no_credentials_configured"},
+        )
+
     last_reason = "no_provider_attempted"
     prompt_text = f"{system}\n{user}"
 
-    for name, key in order:
-        if not key or not str(key).strip():
-            last_reason = f"key_missing_for_{name}"
-            continue
+    from src.ai.providerRegistry import ProviderRegistry
+
+    for model, key in order:
         try:
-            if name == "groq":
-                text, usage = await groq_chat(
-                    settings,
-                    api_key=key,
-                    system=system,
-                    user=user,
-                    timeout_seconds=timeout,
-                )
-                _record_usage(
-                    organization_id=organization_id,
-                    provider="groq",
-                    route_type=route_type,
-                    usage=usage,
-                    prompt_text=prompt_text,
-                    completion_text=text,
-                )
-                return text, "groq"
-            if name == "gemini":
-                text, usage = await gemini_chat(
-                    settings,
-                    api_key=key,
-                    system=system,
-                    user=user,
-                    timeout_seconds=timeout,
-                )
-                _record_usage(
-                    organization_id=organization_id,
-                    provider="gemini",
-                    route_type=route_type,
-                    usage=usage,
-                    prompt_text=prompt_text,
-                    completion_text=text,
-                )
-                return text, "gemini"
+            provider_name, executor = ProviderRegistry.get_provider(model)
+            text, usage = await executor.chat(
+                settings,
+                model=model,
+                api_key=key,
+                system=system,
+                user=user,
+                timeout_seconds=timeout,
+            )
+            _record_usage(
+                organization_id=organization_id,
+                provider=provider_name,
+                route_type=route_type,
+                usage=usage,
+                prompt_text=prompt_text,
+                completion_text=text,
+            )
+            return text, provider_name
         except Exception as exc:
             last_reason = str(exc)
             continue
@@ -115,51 +111,56 @@ async def stream_chat_with_fallback(
     is_evaluation: bool = False,
 ) -> AsyncIterator[tuple[str, str]]:
     timeout = float(settings.llm_timeout_seconds)
-    primary = settings.active_llm_provider.strip().lower()
-    fallback = settings.fallback_llm_provider.strip().lower()
 
     if is_evaluation:
         primary_key = settings.evaluation_api_key
-        fallback_key = settings.evaluation_api_key
+        primary_model = settings.evaluation_model
+        fallback_key = None
+        fallback_model = None
     else:
         primary_key = settings.generation_api_key
+        primary_model = settings.generation_model
         fallback_key = settings.fallback_generation_api_key
+        fallback_model = settings.fallback_generation_model
 
-    order = [(primary, primary_key), (fallback, fallback_key)]
+    order = []
+    if primary_key and str(primary_key).strip() and primary_model:
+        order.append((primary_model, primary_key))
+    if fallback_key and str(fallback_key).strip() and fallback_model:
+        order.append((fallback_model, fallback_key))
+
+    if not order:
+        raise BaseApplicationException(
+            "No LLM provider keys or models configured",
+            error_code="rag_provider_unavailable",
+            status_code=503,
+            details={"reason": "no_credentials_configured"},
+        )
+
     last_reason = "no_provider_attempted"
     emitted = False
     prompt_text = f"{system}\n{user}"
     parts: list[str] = []
     provider_used = "none"
 
-    for name, key in order:
-        if not key or not str(key).strip():
-            last_reason = f"key_missing_for_{name}"
-            continue
+    from src.ai.providerRegistry import ProviderRegistry
+
+    for model, key in order:
         try:
-            if name == "groq":
-                gen = groq_chat_stream(
-                    settings,
-                    api_key=key,
-                    system=system,
-                    user=user,
-                    timeout_seconds=timeout,
-                )
-            elif name == "gemini":
-                gen = gemini_chat_stream(
-                    settings,
-                    api_key=key,
-                    system=system,
-                    user=user,
-                    timeout_seconds=timeout,
-                )
-            else:
-                continue
-            provider_used = name
+            provider_name, executor = ProviderRegistry.get_provider(model)
+            provider_used = provider_name
+            gen = await executor.chat_stream(
+                settings,
+                model=model,
+                api_key=key,
+                system=system,
+                user=user,
+                timeout_seconds=timeout,
+            )
             async for delta in gen:
                 emitted = True
                 parts.append(delta)
-                yield name, delta
+                yield provider_name, delta
             completion = "".join(parts)
             _record_usage(
                 organization_id=organization_id,

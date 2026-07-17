@@ -25,6 +25,7 @@ def _parse_groq_usage(data: dict[str, Any]) -> GenerationUsage | None:
 async def groq_chat(
     settings: AppEnvironment,
     *,
+    model: str,
     api_key: str,
     system: str,
     user: str,
@@ -34,7 +35,7 @@ async def groq_chat(
     if not key or not str(key).strip():
         raise RuntimeError("groq_key_missing")
     payload: dict[str, Any] = {
-        "model": settings.groq_model,
+        "model": model,
         "temperature": 0.2,
         "messages": [
             {"role": "system", "content": system},
@@ -67,6 +68,7 @@ async def groq_chat(
 async def groq_chat_stream(
     settings: AppEnvironment,
     *,
+    model: str,
     api_key: str,
     system: str,
     user: str,
@@ -76,7 +78,7 @@ async def groq_chat_stream(
     if not key or not str(key).strip():
         raise RuntimeError("groq_key_missing")
     payload: dict[str, Any] = {
-        "model": settings.groq_model,
+        "model": model,
         "temperature": 0.2,
         "stream": True,
         "messages": [

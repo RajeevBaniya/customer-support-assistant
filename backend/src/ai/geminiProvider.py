@@ -26,6 +26,7 @@ def _parse_gemini_usage(data: dict[str, Any]) -> GenerationUsage | None:
 async def gemini_chat(
     settings: AppEnvironment,
     *,
+    model: str,
     api_key: str,
     system: str,
     user: str,
@@ -34,10 +35,10 @@ async def gemini_chat(
     key = api_key
     if not key or not str(key).strip():
         raise RuntimeError("gemini_key_missing")
-    model = quote(settings.gemini_model.strip(), safe=".-_")
+    quoted_model = quote(model.strip(), safe=".-_")
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={str(key).strip()}"
+        f"{quoted_model}:generateContent?key={str(key).strip()}"
     )
     body: dict[str, Any] = {
         "systemInstruction": {"parts": [{"text": system}]},
@@ -79,6 +80,7 @@ def _gemini_stream_text_from_obj(obj: dict[str, Any]) -> str | None:
 async def gemini_chat_stream(
     settings: AppEnvironment,
     *,
+    model: str,
     api_key: str,
     system: str,
     user: str,
@@ -87,10 +89,10 @@ async def gemini_chat_stream(
     key = api_key
     if not key or not str(key).strip():
         raise RuntimeError("gemini_key_missing")
-    model = quote(settings.gemini_model.strip(), safe=".-_")
+    quoted_model = quote(model.strip(), safe=".-_")
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:streamGenerateContent?key={str(key).strip()}&alt=sse"
+        f"{quoted_model}:streamGenerateContent?key={str(key).strip()}&alt=sse"
     )
     body: dict[str, Any] = {
         "systemInstruction": {"parts": [{"text": system}]},
