@@ -14,7 +14,7 @@ class AppEnvironment(BaseSettings):
         env_file=ENV_FILE_PATH,
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="forbid",
+        extra="ignore",
     )
 
     app_name: str = Field(default="RecallStack", alias="APP_NAME", min_length=1)
@@ -53,20 +53,38 @@ class AppEnvironment(BaseSettings):
     supabase_service_role_key: str | None = Field(default=None, alias="SUPABASE_SERVICE_ROLE_KEY")
     supabase_storage_bucket: str | None = Field(default=None, alias="SUPABASE_STORAGE_BUCKET")
 
+    root_agent_api_key: str | None = Field(default=None, alias="ROOT_AGENT_API_KEY")
+    root_agent_model: str = Field(alias="ROOT_AGENT_MODEL", min_length=1)
+
     planning_api_key: str | None = Field(default=None, alias="PLANNING_API_KEY")
+    planning_model: str = Field(alias="PLANNING_MODEL", min_length=1)
+
+    query_rewrite_api_key: str | None = Field(default=None, alias="QUERY_REWRITE_API_KEY")
+    query_rewrite_model: str = Field(alias="QUERY_REWRITE_MODEL", min_length=1)
+
     context_api_key: str | None = Field(default=None, alias="CONTEXT_API_KEY")
+    context_model: str = Field(alias="CONTEXT_MODEL", min_length=1)
+
     generation_api_key: str | None = Field(default=None, alias="GENERATION_API_KEY")
+    generation_model: str = Field(alias="GENERATION_MODEL", min_length=1)
+
+    reviewer_api_key: str | None = Field(default=None, alias="REVIEWER_API_KEY")
+    reviewer_model: str = Field(alias="REVIEWER_MODEL", min_length=1)
+
     evaluation_api_key: str | None = Field(default=None, alias="EVALUATION_API_KEY")
+    evaluation_model: str = Field(alias="EVALUATION_MODEL", min_length=1)
+
     fallback_generation_api_key: str | None = Field(
         default=None, alias="FALLBACK_GENERATION_API_KEY"
     )
+    fallback_generation_model: str = Field(alias="FALLBACK_GENERATION_MODEL", min_length=1)
     huggingface_api_key: str | None = Field(default=None, alias="HUGGINGFACE_API_KEY")
     embedding_model: str = Field(
         default="BAAI/bge-base-en-v1.5",
         alias="EMBEDDING_MODEL",
         min_length=1,
     )
-    embedding_batch_size: int = Field(default=32, alias="EMBEDDING_BATCH_SIZE", ge=1, le=512)
+    embedding_batch_size: int = Field(default=100, alias="EMBEDDING_BATCH_SIZE", ge=1, le=10000)
     embedding_max_retries: int = Field(default=3, alias="EMBEDDING_MAX_RETRIES", ge=1, le=10)
     embedding_retry_delay_seconds: float = Field(
         default=2.0, alias="EMBEDDING_RETRY_DELAY_SECONDS", ge=0.1, le=60.0
@@ -98,12 +116,7 @@ class AppEnvironment(BaseSettings):
         ge=10,
         le=200,
     )
-    active_llm_provider: str = Field(default="groq", alias="ACTIVE_LLM_PROVIDER", min_length=1)
-    fallback_llm_provider: str = Field(
-        default="gemini", alias="FALLBACK_LLM_PROVIDER", min_length=1
-    )
-    groq_model: str = Field(default="llama-3.1-8b-instant", alias="GROQ_MODEL", min_length=1)
-    gemini_model: str = Field(default="gemini-1.5-flash", alias="GEMINI_MODEL", min_length=1)
+
     rag_max_chunks: int = Field(default=6, alias="RAG_MAX_CHUNKS", ge=1, le=50)
     rag_max_context_chars: int = Field(
         default=12000,
@@ -189,6 +202,22 @@ class AppEnvironment(BaseSettings):
         le=12500,
     )
 
+    ingestion_version: str = Field(
+        default="1.0.0",
+        alias="INGESTION_VERSION",
+    )
+    semantic_chunk_max_tokens: int = Field(
+        default=300,
+        alias="SEMANTIC_CHUNK_MAX_TOKENS",
+        ge=10,
+        le=50000,
+    )
+    semantic_chunk_min_tokens: int = Field(
+        default=25,
+        alias="SEMANTIC_CHUNK_MIN_TOKENS",
+        ge=1,
+        le=25000,
+    )
     clerk_webhook_signing_key: str | None = Field(default=None, alias="CLERK_WEBHOOK_SIGNING_KEY")
 
     cors_allowed_origins: list[str] = Field(default=[], alias="CORS_ALLOWED_ORIGINS")
@@ -262,7 +291,17 @@ class AppEnvironment(BaseSettings):
             return 8000
         return value
 
-    @field_validator("embedding_model", "groq_model", "gemini_model")
+    @field_validator(
+        "embedding_model",
+        "root_agent_model",
+        "planning_model",
+        "query_rewrite_model",
+        "context_model",
+        "generation_model",
+        "reviewer_model",
+        "evaluation_model",
+        "fallback_generation_model",
+    )
     @classmethod
     def strip_nonempty_fields(cls, value: str) -> str:
         return value.strip()
@@ -274,14 +313,6 @@ class AppEnvironment(BaseSettings):
             return None
         s = str(value).strip()
         return s or None
-
-    @field_validator("active_llm_provider", "fallback_llm_provider")
-    @classmethod
-    def normalize_llm_provider(cls, value: str) -> str:
-        name = value.strip().lower()
-        if name not in {"groq", "gemini"}:
-            raise ValueError("LLM provider must be 'groq' or 'gemini'")
-        return name
 
     @field_validator("database_url")
     @classmethod
