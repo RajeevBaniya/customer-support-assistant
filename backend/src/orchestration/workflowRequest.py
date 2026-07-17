@@ -17,4 +17,3 @@ class WorkflowRequest(BaseModel):
     selected_document_ids: list[UUID] | None = None
     stream: bool = False
     evaluation_mode: bool = False
-    provider_override: str | None = None

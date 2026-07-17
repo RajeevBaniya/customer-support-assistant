@@ -64,7 +64,6 @@ class ExecutionContext(BaseModel):
     document_ids: list[UUID] | None = None
     enable_original_file_storage: bool
     hybrid_retrieval_enabled: bool
-    active_llm_provider: str
     embedding_model: str
     chat_history_max_messages: int
 

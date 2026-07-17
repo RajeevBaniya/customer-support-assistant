@@ -16,5 +16,4 @@ class GenerationRequest(BaseModel):
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     top_p: float | None = Field(default=None, ge=0.0, le=1.0)
     max_output_tokens: int | None = Field(default=None, ge=1)
-    provider_override: str | None = Field(default=None, min_length=1)
     is_evaluation: bool = False

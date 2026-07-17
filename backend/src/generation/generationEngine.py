@@ -33,10 +33,6 @@ class GenerationEngine:
         user = request.context_package.instructions.user_prompt
 
         settings = self._settings
-        if request.provider_override is not None:
-            settings = self._settings.model_copy(
-                update={"active_llm_provider": request.provider_override}
-            )
 
         try:
             answer, provider = await complete_with_fallback(
@@ -58,8 +54,24 @@ class GenerationEngine:
             ) from exc
 
         duration_ms = (perf_counter() - start_time) * 1000.0
-        model = settings.groq_model if provider == "groq" else settings.gemini_model
-        fallback_used = provider != settings.active_llm_provider.strip().lower()
+
+        primary_model = (
+            settings.evaluation_model
+            if request.is_evaluation
+            else settings.generation_model
+        )
+        fallback_model = None if request.is_evaluation else settings.fallback_generation_model
+
+        primary_provider = "none"
+        if primary_model:
+            try:
+                from src.ai.providerRegistry import ProviderRegistry
+                primary_provider, _ = ProviderRegistry.get_provider(primary_model)
+            except Exception:
+                pass
+
+        fallback_used = provider != primary_provider
+        model = fallback_model if (fallback_used and fallback_model) else primary_model
 
         if self._observability:
             self._observability.start_stage("generation")
@@ -97,10 +109,6 @@ class GenerationEngine:
         user = request.context_package.instructions.user_prompt
 
         settings = self._settings
-        if request.provider_override is not None:
-            settings = self._settings.model_copy(
-                update={"active_llm_provider": request.provider_override}
-            )
 
         try:
             gen = stream_chat_with_fallback(
@@ -112,7 +120,21 @@ class GenerationEngine:
                 is_evaluation=request.is_evaluation,
             )
 
-            active_provider = settings.active_llm_provider.strip().lower()
+            primary_model = (
+                settings.evaluation_model
+                if request.is_evaluation
+                else settings.generation_model
+            )
+            fallback_model = None if request.is_evaluation else settings.fallback_generation_model
+
+            primary_provider = "none"
+            if primary_model:
+                try:
+                    from src.ai.providerRegistry import ProviderRegistry
+                    primary_provider, _ = ProviderRegistry.get_provider(primary_model)
+                except Exception:
+                    pass
+
             last_provider = "none"
             last_model = "none"
             last_duration = 0.0
@@ -120,8 +142,8 @@ class GenerationEngine:
 
             async for provider, delta in gen:
                 duration_ms = (perf_counter() - start_time) * 1000.0
-                model = settings.groq_model if provider == "groq" else settings.gemini_model
-                fallback_used = provider != active_provider
+                fallback_used = provider != primary_provider
+                model = fallback_model if (fallback_used and fallback_model) else primary_model
 
                 last_provider = provider
                 last_model = model

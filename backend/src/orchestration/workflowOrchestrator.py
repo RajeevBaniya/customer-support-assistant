@@ -63,7 +63,7 @@ class WorkflowOrchestrator:
         self._observability.start_stage("planner")
         plan_start = perf_counter()
         planner = PlanningEngine(self._settings)
-        plan = planner.plan(context)
+        plan = await planner.plan(context)
         plan_ms = (perf_counter() - plan_start) * 1000.0
 
         if prior_turns_text is None:
@@ -77,7 +77,47 @@ class WorkflowOrchestrator:
                 max_tokens=plan.budget.max_history_tokens,
             )
             prior_turns_text = history_block.strip() or None
-        self._observability.end_stage("planner", status="success")
+        self._observability.end_stage(
+            "planner",
+            status="success",
+            metadata={
+                "user_intent": plan.user_intent,
+                "execution_type": plan.execution_type,
+                "complexity": plan.complexity,
+                "confidence": plan.confidence,
+                "fallback_used": plan.planner_metadata.get("fallback_used", False),
+                "model_used": plan.planner_metadata.get("model_used"),
+            },
+        )
+
+        # 2.5 Query Intelligence (Rewrite)
+        query_rewrite = None
+        rewrite_ms = 0.0
+        if plan.retrieval.need_retrieval:
+            self._observability.start_stage("query_rewriter")
+            rewrite_start = perf_counter()
+            from src.planning.queryRewriteAgent import QueryRewriteAgent
+
+            rewriter = QueryRewriteAgent(self._settings)
+            query_rewrite = await rewriter.rewrite_query(
+                request.user_message.strip(), context, plan
+            )
+            rewrite_ms = (perf_counter() - rewrite_start) * 1000.0
+
+            self._observability.end_stage(
+                "query_rewriter",
+                status="success",
+                metadata={
+                    "original_query": query_rewrite.original_query,
+                    "rewritten_query": query_rewrite.rewritten_query,
+                    "rewrite_performed": query_rewrite.rewrite_performed,
+                    "rewrite_confidence": query_rewrite.confidence,
+                    "rewrite_latency_ms": query_rewrite.metadata.get("latency_ms", 0.0),
+                    "fallback_used": query_rewrite.metadata.get("fallback_used", False),
+                    "model_used": query_rewrite.metadata.get("model_used"),
+                    "num_retrieval_queries": len(query_rewrite.retrieval_queries),
+                },
+            )
 
         # 3. Execution (via RagService and LangGraph state)
         self._observability.start_stage("rag_graph")
@@ -87,6 +127,7 @@ class WorkflowOrchestrator:
             self._settings,
             context=context,
             plan=plan,
+            query_rewrite=query_rewrite,
             is_evaluation=request.evaluation_mode,
         )
         search_req = RetrievalSearchRequest(
@@ -100,6 +141,7 @@ class WorkflowOrchestrator:
             prior_turns_text=prior_turns_text,
             context=context,
             plan=plan,
+            query_rewrite=query_rewrite,
             observability=self._observability,
         )
         exec_ms = (perf_counter() - exec_start) * 1000.0
@@ -173,13 +215,21 @@ class WorkflowOrchestrator:
         total_ms = (perf_counter() - total_start) * 1000.0
         self._observability.finish_trace(status="success")
 
+        stages_executed = ["context_loader", "planner"]
+        stages_skipped = []
+        if plan.retrieval.need_retrieval:
+            stages_executed.append("query_rewriter")
+        else:
+            stages_skipped.append("query_rewriter")
+        stages_executed.append("rag_graph")
+
         metrics = WorkflowMetrics(
             total_duration_ms=total_ms,
             context_load_duration_ms=loader_ms,
-            planning_duration_ms=plan_ms,
+            planning_duration_ms=plan_ms + rewrite_ms,
             execution_duration_ms=exec_ms,
-            stages_executed=["context_loader", "planner", "rag_graph"],
-            stages_skipped=[],
+            stages_executed=stages_executed,
+            stages_skipped=stages_skipped,
         )
 
         return WorkflowResult(
@@ -217,7 +267,7 @@ class WorkflowOrchestrator:
 
         self._observability.start_stage("planner")
         planner = PlanningEngine(self._settings)
-        plan = planner.plan(context)
+        plan = await planner.plan(context)
 
         if prior_turns_text is None:
             from src.conversations.priorTurnsFormat import TurnLine, prior_turns_block
@@ -230,7 +280,44 @@ class WorkflowOrchestrator:
                 max_tokens=plan.budget.max_history_tokens,
             )
             prior_turns_text = history_block.strip() or None
-        self._observability.end_stage("planner", status="success")
+        self._observability.end_stage(
+            "planner",
+            status="success",
+            metadata={
+                "user_intent": plan.user_intent,
+                "execution_type": plan.execution_type,
+                "complexity": plan.complexity,
+                "confidence": plan.confidence,
+                "fallback_used": plan.planner_metadata.get("fallback_used", False),
+                "model_used": plan.planner_metadata.get("model_used"),
+            },
+        )
+
+        # 1.5 Query Intelligence (Rewrite)
+        query_rewrite = None
+        if plan.retrieval.need_retrieval:
+            self._observability.start_stage("query_rewriter")
+            from src.planning.queryRewriteAgent import QueryRewriteAgent
+
+            rewriter = QueryRewriteAgent(self._settings)
+            query_rewrite = await rewriter.rewrite_query(
+                request.user_message.strip(), context, plan
+            )
+
+            self._observability.end_stage(
+                "query_rewriter",
+                status="success",
+                metadata={
+                    "original_query": query_rewrite.original_query,
+                    "rewritten_query": query_rewrite.rewritten_query,
+                    "rewrite_performed": query_rewrite.rewrite_performed,
+                    "rewrite_confidence": query_rewrite.confidence,
+                    "rewrite_latency_ms": query_rewrite.metadata.get("latency_ms", 0.0),
+                    "fallback_used": query_rewrite.metadata.get("fallback_used", False),
+                    "model_used": query_rewrite.metadata.get("model_used"),
+                    "num_retrieval_queries": len(query_rewrite.retrieval_queries),
+                },
+            )
 
         # 2. Run graph preparation
         self._observability.start_stage("rag_graph")
@@ -239,6 +326,7 @@ class WorkflowOrchestrator:
             self._settings,
             context=context,
             plan=plan,
+            query_rewrite=query_rewrite,
             is_evaluation=request.evaluation_mode,
         )
         search_req = RetrievalSearchRequest(
@@ -252,6 +340,7 @@ class WorkflowOrchestrator:
             prior_turns_text=prior_turns_text,
             context=context,
             plan=plan,
+            query_rewrite=query_rewrite,
             observability=self._observability,
         )
         self._observability.end_stage("rag_graph", status="success")

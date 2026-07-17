@@ -83,7 +83,6 @@ class RuntimeContextBuilder:
             document_ids=document_ids,
             enable_original_file_storage=settings.enable_original_file_storage,
             hybrid_retrieval_enabled=settings.hybrid_retrieval_enabled,
-            active_llm_provider=settings.active_llm_provider,
             embedding_model=settings.resolved_embedding_model,
             chat_history_max_messages=settings.chat_history_max_messages,
         )
