@@ -60,9 +60,35 @@ class ChildChunk(BaseModel):
     )
     parser_confidence: list[float] = Field(
         default_factory=list,
-        description="The list of parser confidence scores for the blocks.",
+        description="The list of parser confidence scores for each block.",
     )
     structure_confidence: list[float] = Field(
         default_factory=list,
-        description="The list of structure detection confidence scores for the blocks.",
+        description="The list of structure detection confidence scores for each block.",
+    )
+
+    # Hierarchical and metadata fields for Phase 23
+    section_id: UUID | None = Field(
+        default=None,
+        description="The unique section identifier this chunk belongs to.",
+    )
+    section_title: str | None = Field(
+        default=None,
+        description="The heading/section title this chunk belongs to.",
+    )
+    chunk_index: int = Field(
+        default=0,
+        description="The sequential index of the chunk in the parent/document context.",
+    )
+    chunk_hash: str = Field(
+        default="",
+        description="The SHA-256 hash of the normalized child chunk content.",
+    )
+    ingestion_version: str = Field(
+        default="1.0.0",
+        description="The ingestion version configured at the time of processing.",
+    )
+    workspace_id: UUID | None = Field(
+        default=None,
+        description="The workspace identifier (mapped to organization_id).",
     )

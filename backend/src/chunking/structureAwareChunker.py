@@ -1,3 +1,8 @@
+import hashlib
+import re
+from uuid import UUID, uuid4
+
+from src.chunking.chunkMetadata import token_estimate
 from src.chunking.docChunk import DocChunk
 from src.documents.canonical import (
     BlockType,
@@ -9,58 +14,130 @@ from src.shared.textHelpers import split_sentences
 BLOCK_SEPARATOR_LEN = 2  # Length of "\n\n" separator when joining blocks
 
 
-class StructureAwareChunker:
-    """Engine responsible for grouping and splitting CanonicalDocument blocks."""
+def calculate_normalized_hash(text: str) -> str:
+    """Computes SHA-256 hash of normalized text for deterministic duplicate detection."""
+    normalized = re.sub(r"\s+", " ", text).strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
-    def __init__(self, chunk_size: int = 1200, overlap: int = 150):
+
+class StructureAwareChunker:
+    """Engine responsible for grouping and splitting CanonicalDocument blocks semantically."""
+
+    def __init__(
+        self,
+        chunk_size: int = 1200,
+        overlap: int = 150,
+        max_tokens: int = 300,
+        min_tokens: int = 25,
+        ingestion_version: str = "1.0.0",
+        workspace_id: UUID | None = None,
+    ) -> None:
         self.chunk_size = chunk_size
         self.overlap = overlap
+        self.max_tokens = max_tokens
+        self.min_tokens = min_tokens
+        self.ingestion_version = ingestion_version
+        self.workspace_id = workspace_id
         self.fallback_count = 0
         self.overlap_count = 0
 
     def chunk(self, document: CanonicalDocument) -> list[DocChunk]:
-        """Groups CanonicalDocument blocks into structured DocChunk instances."""
+        """Groups CanonicalDocument blocks into semantically aligned DocChunks."""
         if not document.blocks:
             return []
 
         chunks: list[DocChunk] = []
         current_blocks: list[DocumentBlock] = []
 
+        current_section_id = uuid4()
+        current_section_title = "Introduction"
+
         for block in document.blocks:
-            block_length = len(block.content)
+            if block.type == BlockType.HEADING:
+                if current_blocks:
+                    chunks.append(
+                        self._build_semantic_chunk(
+                            current_blocks,
+                            document,
+                            current_section_id,
+                            current_section_title,
+                            len(chunks),
+                        )
+                    )
+                    current_blocks = []
+                current_section_id = uuid4()
+                current_section_title = block.content.strip()
+
+            block_tokens = token_estimate(block.content)
+
             if not current_blocks:
-                if block_length > self.chunk_size:
-                    chunks.extend(self._split_single_block(block, document))
+                if block_tokens > self.max_tokens:
+                    chunks.extend(
+                        self._split_semantic_block(
+                            block,
+                            document,
+                            current_section_id,
+                            current_section_title,
+                            len(chunks),
+                        )
+                    )
                 else:
                     current_blocks.append(block)
                 continue
 
-            current_size = sum(len(b.content) for b in current_blocks) + BLOCK_SEPARATOR_LEN * (
-                len(current_blocks) - 1
-            )
-            updated_size = current_size + BLOCK_SEPARATOR_LEN + block_length
+            current_text = "\n\n".join(b.content for b in current_blocks)
+            current_tokens = token_estimate(current_text)
 
-            if updated_size <= self.chunk_size:
+            if current_tokens + block_tokens <= self.max_tokens:
                 current_blocks.append(block)
             else:
-                chunks.append(self._build_chunk(current_blocks, document))
+                chunks.append(
+                    self._build_semantic_chunk(
+                        current_blocks,
+                        document,
+                        current_section_id,
+                        current_section_title,
+                        len(chunks),
+                    )
+                )
                 current_blocks = self._get_overlap_blocks(current_blocks)
 
-                if block_length > self.chunk_size:
-                    chunks.extend(self._split_single_block(block, document))
+                if block_tokens > self.max_tokens:
+                    chunks.extend(
+                        self._split_semantic_block(
+                            block,
+                            document,
+                            current_section_id,
+                            current_section_title,
+                            len(chunks),
+                        )
+                    )
                     current_blocks = []
                 else:
                     current_blocks.append(block)
 
         if current_blocks:
-            chunks.append(self._build_chunk(current_blocks, document))
+            chunks.append(
+                self._build_semantic_chunk(
+                    current_blocks,
+                    document,
+                    current_section_id,
+                    current_section_title,
+                    len(chunks),
+                )
+            )
 
         return chunks
 
-    def _split_single_block(
-        self, block: DocumentBlock, document: CanonicalDocument
+    def _split_semantic_block(
+        self,
+        block: DocumentBlock,
+        document: CanonicalDocument,
+        section_id: UUID,
+        section_title: str,
+        start_index: int,
     ) -> list[DocChunk]:
-        """Splits a single block that exceeds chunk_size limit."""
+        """Splits a single block that exceeds max_tokens limit semantically."""
         self.fallback_count += 1
         if block.type in (BlockType.TABLE, BlockType.CODE, BlockType.LIST):
             parts = block.content.splitlines()
@@ -73,27 +150,47 @@ class StructureAwareChunker:
         current_parts: list[str] = []
 
         for part in parts:
-            part_length = len(part)
+            part_tokens = token_estimate(part)
             if not current_parts:
-                if part_length > self.chunk_size:
+                if part_tokens > self.max_tokens:
+                    part_length = len(part)
+                    char_chunk_size = self.max_tokens * 4
                     part_slices = [
-                        part[char_index : char_index + self.chunk_size]
-                        for char_index in range(0, part_length, self.chunk_size)
+                        part[char_index : char_index + char_chunk_size]
+                        for char_index in range(0, part_length, char_chunk_size)
                     ]
                     for slice_text in part_slices:
-                        chunks.append(self._build_chunk_from_text(slice_text, block, document))
+                        chunks.append(
+                            self._build_semantic_chunk_from_text(
+                                slice_text,
+                                block,
+                                document,
+                                section_id,
+                                section_title,
+                                start_index + len(chunks),
+                            )
+                        )
                 else:
                     current_parts.append(part)
                 continue
 
-            current_size = sum(len(p) for p in current_parts) + len(
-                join_char
-            ) * (len(current_parts) - 1)
-            if current_size + len(join_char) + part_length <= self.chunk_size:
+            current_text = join_char.join(current_parts)
+            current_tokens = token_estimate(current_text)
+
+            if current_tokens + token_estimate(join_char) + part_tokens <= self.max_tokens:
                 current_parts.append(part)
             else:
                 text_content = join_char.join(current_parts)
-                chunks.append(self._build_chunk_from_text(text_content, block, document))
+                chunks.append(
+                    self._build_semantic_chunk_from_text(
+                        text_content,
+                        block,
+                        document,
+                        section_id,
+                        section_title,
+                        start_index + len(chunks),
+                    )
+                )
 
                 previous_part = current_parts[-1]
                 if len(previous_part) <= self.overlap:
@@ -103,7 +200,16 @@ class StructureAwareChunker:
 
         if current_parts:
             text_content = join_char.join(current_parts)
-            chunks.append(self._build_chunk_from_text(text_content, block, document))
+            chunks.append(
+                self._build_semantic_chunk_from_text(
+                    text_content,
+                    block,
+                    document,
+                    section_id,
+                    section_title,
+                    start_index + len(chunks),
+                )
+            )
 
         return chunks
 
@@ -145,8 +251,13 @@ class StructureAwareChunker:
 
         return []
 
-    def _build_chunk(
-        self, blocks: list[DocumentBlock], document: CanonicalDocument
+    def _build_semantic_chunk(
+        self,
+        blocks: list[DocumentBlock],
+        document: CanonicalDocument,
+        section_id: UUID,
+        section_title: str,
+        chunk_index: int,
     ) -> DocChunk:
         """Assembles a DocChunk from a list of grouped blocks."""
         text = "\n\n".join(block.content for block in blocks)
@@ -171,6 +282,8 @@ class StructureAwareChunker:
                     confidence = float(confidence_val)
             structure_confidences.append(confidence)
 
+        chunk_hash = calculate_normalized_hash(text)
+
         return DocChunk(
             text=text,
             document_id=document.document_id,
@@ -183,10 +296,22 @@ class StructureAwareChunker:
             schema_version=document.metadata.schema_version,
             parser_confidence=parser_confidences,
             structure_confidence=structure_confidences,
+            section_id=section_id,
+            section_title=section_title,
+            chunk_index=chunk_index,
+            chunk_hash=chunk_hash,
+            ingestion_version=self.ingestion_version,
+            workspace_id=self.workspace_id,
         )
 
-    def _build_chunk_from_text(
-        self, text: str, block: DocumentBlock, document: CanonicalDocument
+    def _build_semantic_chunk_from_text(
+        self,
+        text: str,
+        block: DocumentBlock,
+        document: CanonicalDocument,
+        section_id: UUID,
+        section_title: str,
+        chunk_index: int,
     ) -> DocChunk:
         """Assembles a DocChunk from a single block's sliced text content."""
         page_no = block.metadata.page_number if block.metadata else None
@@ -197,6 +322,8 @@ class StructureAwareChunker:
             confidence_val = block.metadata.extra_metadata.get("structure_confidence", 1.0)
             if isinstance(confidence_val, int | float):
                 structure_confidence = float(confidence_val)
+
+        chunk_hash = calculate_normalized_hash(text)
 
         return DocChunk(
             text=text,
@@ -210,4 +337,10 @@ class StructureAwareChunker:
             schema_version=document.metadata.schema_version,
             parser_confidence=[block.parser_confidence],
             structure_confidence=[structure_confidence],
+            section_id=section_id,
+            section_title=section_title,
+            chunk_index=chunk_index,
+            chunk_hash=chunk_hash,
+            ingestion_version=self.ingestion_version,
+            workspace_id=self.workspace_id,
         )

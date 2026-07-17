@@ -66,3 +66,29 @@ class DocChunk(BaseModel):
         default_factory=list,
         description="The unique identifiers of any associated child chunks.",
     )
+
+    # Hierarchical and metadata fields for Phase 23
+    section_id: UUID | None = Field(
+        default=None,
+        description="The unique section identifier this chunk belongs to.",
+    )
+    section_title: str | None = Field(
+        default=None,
+        description="The heading/section title this chunk belongs to.",
+    )
+    chunk_index: int = Field(
+        default=0,
+        description="The sequential index of the chunk in the document.",
+    )
+    chunk_hash: str = Field(
+        default="",
+        description="The SHA-256 hash of the normalized chunk content.",
+    )
+    ingestion_version: str = Field(
+        default="1.0.0",
+        description="The ingestion version configured at the time of processing.",
+    )
+    workspace_id: UUID | None = Field(
+        default=None,
+        description="The workspace identifier (mapped to organization_id).",
+    )
