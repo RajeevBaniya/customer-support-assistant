@@ -5,7 +5,7 @@ from time import perf_counter
 from src.core.appEnvironment import AppEnvironment
 from src.observability.structuredLogger import get_logger
 from src.planning.executionPlan import ExecutionPlan
-from src.planning.planningRules import PlanningRules
+from src.planning.plannerAgentService import PlannerAgentService
 from src.runtimeContext.runtimeContext import RuntimeContext
 
 logger = get_logger("planning.engine")
@@ -17,7 +17,7 @@ class PlanningEngine:
     def __init__(self, settings: AppEnvironment) -> None:
         self._settings = settings
 
-    def plan(self, context: RuntimeContext) -> ExecutionPlan:
+    async def plan(self, context: RuntimeContext) -> ExecutionPlan:
         """Assembles ExecutionPlan by evaluating planning rules against context."""
         start_time = perf_counter()
         logger.info(
@@ -26,17 +26,8 @@ class PlanningEngine:
             organization_id=str(context.session.organization_id),
         )
 
-        workflow = PlanningRules.determine_workflow(context)
-        retrieval = PlanningRules.determine_retrieval(context)
-        budget = PlanningRules.determine_budget(context, self._settings)
-        strategy = PlanningRules.determine_strategy(workflow)
-
-        plan = ExecutionPlan(
-            workflow=workflow,
-            retrieval=retrieval,
-            budget=budget,
-            strategy=strategy,
-        )
+        agent = PlannerAgentService(self._settings)
+        plan = await agent.generate_plan(context)
 
         duration = perf_counter() - start_time
         logger.info(
@@ -47,5 +38,12 @@ class PlanningEngine:
             retrieval_decision=plan.retrieval.need_retrieval,
             execution_strategy=plan.strategy.concurrency,
             planning_duration_seconds=round(duration, 4),
+            user_intent=plan.user_intent,
+            execution_type=plan.execution_type,
+            complexity=plan.complexity,
+            confidence=plan.confidence,
+            fallback_used=plan.planner_metadata.get("fallback_used", False),
+            model_used=plan.planner_metadata.get("model_used"),
+            provider_used=plan.planner_metadata.get("provider_used"),
         )
         return plan
